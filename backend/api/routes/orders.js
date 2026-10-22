@@ -15,8 +15,8 @@ router.post('/', authMiddleware, async (req, res) => {
     }
     await client.query('BEGIN');
     const orderId = uuidv4();
-    const insertOrderQ = `insert into orders(id, customer_id, payment_method, subtotal, shipping_fee, total, delivery_address, created_at)
-      values($1,$2,$3,$4,$5,$6,$7, now())`;
+    const insertOrderQ = `insert into orders(id, customer_id, payment_method, subtotal, shipping_fee, total, delivery_address, status, created_at)
+      values($1,$2,$3,$4,$5,$6,$7,'new', now())`;
     await client.query(insertOrderQ, [orderId, profile.id, payment_method || 'cash_on_delivery', subtotal || 0, shipping_fee || 0, total || 0, delivery_address || null]);
     const insertItemQ = `insert into order_items(id, order_id, product_id, product_name, quantity, unit_price, total, created_at)
       values($1,$2,$3,$4,$5,$6,$7, now())`;
