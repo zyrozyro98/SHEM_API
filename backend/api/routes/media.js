@@ -4,6 +4,13 @@ const fetch = require('node-fetch');
 const { v4: uuidv4 } = require('uuid');
 
 const router = express.Router();
+const mediaDirectories = {
+  products: process.env.GITHUB_PRODUCTS_DIRECTORY?.trim() || 'assets/products',
+  promotions:
+    process.env.GITHUB_PROMOTIONS_DIRECTORY?.trim() || 'assets/promotions',
+  receipts: process.env.GITHUB_RECEIPTS_DIRECTORY?.trim() || 'assets/receipts',
+  profiles: process.env.GITHUB_PROFILES_DIRECTORY?.trim() || 'assets/profiles',
+};
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 2 * 1024 * 1024 },
@@ -27,8 +34,16 @@ router.post('/upload', upload.single('file'), async (req, res) => {
   }
 
   try {
+    const mediaType = (req.body.media_type || req.body.mediaType || 'products')
+      .toString()
+      .trim()
+      .toLowerCase();
+    if (!Object.prototype.hasOwnProperty.call(mediaDirectories, mediaType)) {
+      return res.status(400).json({ error: 'Invalid media type' });
+    }
+
     const extension = req.file.mimetype.split('/')[1].replace('jpeg', 'jpg');
-    const directory = (process.env.GITHUB_MEDIA_DIRECTORY || 'assets/uploads')
+    const directory = mediaDirectories[mediaType]
       .replace(/^\/+|\/+$/g, '');
     const path = `${directory}/${uuidv4()}.${extension}`;
     const encodedPath = path.split('/').map(encodeURIComponent).join('/');
