@@ -17,7 +17,7 @@ const normalizePhone = (value = '') => {
   if (!digits) return '';
   const withoutPrefix = digits.startsWith('00') ? digits.slice(2) : digits;
   const withoutCountry = withoutPrefix.startsWith('967')
-    ? withoutPrefix
+    ? withoutPrefix.slice(3)
     : withoutPrefix.startsWith('0')
       ? withoutPrefix.slice(1)
       : withoutPrefix;
