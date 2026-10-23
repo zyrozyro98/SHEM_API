@@ -1,162 +1,219 @@
+const test = require('node:test');
+const assert = require('node:assert/strict');
 const express = require('express');
-const { randomInt } = require('node:crypto');
-const router = express.Router();
 
-const otpStore = new Map();
+const authRouter = require('../routes/auth');
 
-const normalizePhone = (value = '') => {
-  const digits = String(value)
-    .trim()
-    .replace(/[\u0660-\u0669\u06F0-\u06F9]/g, (char) => {
-      const code = char.charCodeAt(0);
-      const base = code >= 0x06f0 ? 0x06f0 : 0x0660;
-      return String.fromCharCode(0x30 + (code - base));
-    })
-    .replace(/\D/g, '');
+async function startAuthApp() {
+  const app = express();
+  app.use(express.json());
+  app.use('/auth', authRouter);
 
-  if (!digits) return '';
-  const withoutPrefix = digits.startsWith('00') ? digits.slice(2) : digits;
-  const withoutCountry = withoutPrefix.startsWith('967')
-    ? withoutPrefix.slice(3)
-    : withoutPrefix.startsWith('0')
-      ? withoutPrefix.slice(1)
-      : withoutPrefix;
-
-  if (!withoutCountry || withoutCountry.length !== 9) return '';
-  return `+967${withoutCountry}`;
-};
-
-const getWawpConfig = () => {
-  const apiUrl = (process.env.WAWP_API_URL || 'https://api.wawp.net')
-    .replace(/\/+$/, '');
-  const instanceId = process.env.WAWP_INSTANCE_ID;
-  const accessToken = process.env.WAWP_ACCESS_TOKEN;
-
-  if (!instanceId || !accessToken) {
-    throw new Error('Wawp env vars missing: set WAWP_INSTANCE_ID and WAWP_ACCESS_TOKEN.');
-  }
-
-  return { apiUrl, instanceId, accessToken };
-};
-
-const sendWhatsAppOtp = async (phone, code) => {
-  const { apiUrl, instanceId, accessToken } = getWawpConfig();
-  const endpoint =
-    `${apiUrl}/v1/instance/${encodeURIComponent(instanceId)}/sendText`;
-  const response = await fetch(endpoint, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Accept: 'application/json',
-      Authorization: `Bearer ${accessToken}`,
-    },
-    body: JSON.stringify({
-      phone: phone.replace(/^\+/, ''),
-      message: `رمز التحقق الخاص بك من SHEM هو ${code}. صالح لمدة 5 دقائق.`,
-    }),
+  return new Promise((resolve) => {
+    const server = app.listen(0, () => resolve(server));
   });
+}
 
-  const responseText = await response.text();
-  let data = {};
-  try {
-    data = responseText ? JSON.parse(responseText) : {};
-  } catch (_) {
-    data = {};
-  }
+test('request-otp sends a WhatsApp code via Wawp and stores it for verification', async () => {
+  const originalFetch = global.fetch;
+  const originalApiUrl = process.env.WAWP_API_URL;
+  const originalInstanceId = process.env.WAWP_INSTANCE_ID;
+  const originalToken = process.env.WAWP_ACCESS_TOKEN;
 
-  if (!response.ok || data?.error || data?.success === false) {
-    throw new Error(`Wawp request failed with status ${response.status}`);
-  }
+  let sentUrl = null;
+  let sentPayload = null;
 
-  return data;
-};
-
-router.post('/request-otp', async (req, res) => {
-  try {
-    const rawPhone = req.body?.phone ?? '';
-    const phone = normalizePhone(rawPhone);
-
-    if (!phone || !/^\+967[0-9]{9}$/.test(phone)) {
-      return res.status(400).json({
-        success: false,
-        error: 'يرجى إدخال رقم الهاتف اليمني الصحيح',
-      });
+  global.fetch = async (url, options) => {
+    const requestUrl = String(url);
+    if (!requestUrl.includes('api.wawp.net')) {
+      return originalFetch(url, options);
     }
 
-    const code = String(randomInt(100000, 1000000));
-    otpStore.set(phone, {
-      code,
-      expiresAt: Date.now() + 5 * 60 * 1000,
+    sentUrl = requestUrl;
+    sentPayload = JSON.parse(options.body);
+    assert.equal(options.headers.Authorization, undefined);
+    return new Response(JSON.stringify({ id: 'abc123', sent: true }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  };
+
+  process.env.WAWP_API_URL = 'https://api.wawp.net';
+  process.env.WAWP_INSTANCE_ID = 'demo-instance';
+  process.env.WAWP_ACCESS_TOKEN = 'demo-token';
+
+  const server = await startAuthApp();
+  const { port } = server.address();
+
+  try {
+    const response = await fetch(`http://127.0.0.1:${port}/auth/request-otp`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone: '0771234567' }),
     });
 
-    await sendWhatsAppOtp(phone, code);
-    return res.json({
-      success: true,
-      message: 'تم إرسال رمز التحقق عبر واتساب.',
-      phone,
-    });
-  } catch (error) {
-    const phone = normalizePhone(req.body?.phone ?? '');
-    if (phone) otpStore.delete(phone);
-    console.error('WhatsApp OTP delivery failed:', error.message);
+    const json = await response.json();
+    assert.equal(response.status, 200);
+    assert.equal(json.success, true);
+    assert.match(json.message, /تم إرسال/i);
+    assert.equal(
+      sentUrl,
+      'https://api.wawp.net/v2/send/text?instance_id=demo-instance&access_token=demo-token',
+    );
+    assert.equal(sentPayload.chatId, '967771234567@c.us');
+    assert.equal(sentPayload.reply_to, undefined);
+    assert.match(sentPayload.message, /رمز التحقق/i);
+    assert.match(sentPayload.message, /5 دقائق/);
 
-    return res.status(502).json({
-      success: false,
-      error: 'تعذر إرسال رمز التحقق عبر واتساب. حاول مرة أخرى لاحقًا.',
-    });
+    const otp = authRouter.otpStore.get('+967771234567');
+    assert.ok(otp && otp.code.length === 6);
+    assert.ok(otp.expiresAt > Date.now());
+  } finally {
+    server.close();
+    global.fetch = originalFetch;
+    if (originalApiUrl === undefined) delete process.env.WAWP_API_URL; else process.env.WAWP_API_URL = originalApiUrl;
+    if (originalInstanceId === undefined) delete process.env.WAWP_INSTANCE_ID; else process.env.WAWP_INSTANCE_ID = originalInstanceId;
+    if (originalToken === undefined) delete process.env.WAWP_ACCESS_TOKEN; else process.env.WAWP_ACCESS_TOKEN = originalToken;
   }
 });
 
-router.post('/verify-otp', (req, res) => {
+test('request-otp accepts a full international Yemeni phone number', async () => {
+  const originalFetch = global.fetch;
+  const originalApiUrl = process.env.WAWP_API_URL;
+  const originalInstanceId = process.env.WAWP_INSTANCE_ID;
+  const originalToken = process.env.WAWP_ACCESS_TOKEN;
+
+  let sentPayload = null;
+  process.env.WAWP_API_URL = 'https://api.wawp.net';
+  process.env.WAWP_INSTANCE_ID = 'demo-instance';
+  process.env.WAWP_ACCESS_TOKEN = 'demo-token';
+  global.fetch = async (url, options) => {
+    if (!String(url).includes('api.wawp.net')) {
+      return originalFetch(url, options);
+    }
+
+    sentPayload = JSON.parse(options.body);
+    return new Response(JSON.stringify({ sent: true }), { status: 200 });
+  };
+
+  const server = await startAuthApp();
+  const { port } = server.address();
+
   try {
-    const phone = normalizePhone(req.body?.phone ?? '');
-    const otp = String(req.body?.otp ?? '').replace(/\D/g, '');
-
-    if (!phone) {
-      return res.status(400).json({
-        success: false,
-        error: 'رقم الهاتف غير صالح',
-      });
-    }
-
-    const record = otpStore.get(phone);
-    if (!record) {
-      return res.status(400).json({
-        success: false,
-        error: 'لم يتم إرسال رمز تحقق لهذا الرقم',
-      });
-    }
-
-    if (Date.now() > record.expiresAt) {
-      otpStore.delete(phone);
-      return res.status(400).json({
-        success: false,
-        error: 'انتهت صلاحية رمز التحقق. أعد الطلب من جديد.',
-      });
-    }
-
-    if (otp.length !== 6 || otp !== record.code) {
-      return res.status(400).json({
-        success: false,
-        error: 'رمز التحقق غير صحيح',
-      });
-    }
-
-    otpStore.delete(phone);
-    return res.json({
-      success: true,
-      message: 'تم التحقق من رقم الهاتف بنجاح',
-      phone,
-      access_token: `wa-${Date.now()}`,
-      user: { phone },
+    const response = await fetch(`http://127.0.0.1:${port}/auth/request-otp`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone: '967771831482' }),
     });
-  } catch (error) {
-    return res.status(400).json({
-      success: false,
-      error: error.message || 'فشل التحقق',
-    });
+    const json = await response.json();
+
+    assert.equal(response.status, 200);
+    assert.equal(json.success, true);
+    assert.equal(json.phone, '+967771831482');
+    assert.equal(sentPayload.chatId, '967771831482@c.us');
+  } finally {
+    server.close();
+    global.fetch = originalFetch;
+    if (originalApiUrl === undefined) delete process.env.WAWP_API_URL; else process.env.WAWP_API_URL = originalApiUrl;
+    if (originalInstanceId === undefined) delete process.env.WAWP_INSTANCE_ID; else process.env.WAWP_INSTANCE_ID = originalInstanceId;
+    if (originalToken === undefined) delete process.env.WAWP_ACCESS_TOKEN; else process.env.WAWP_ACCESS_TOKEN = originalToken;
   }
 });
 
-router.otpStore = otpStore;
-module.exports = router;
+test('verify-otp accepts the matching code for the same phone number', async () => {
+  const originalFetch = global.fetch;
+  const originalApiUrl = process.env.WAWP_API_URL;
+  const originalInstanceId = process.env.WAWP_INSTANCE_ID;
+  const originalToken = process.env.WAWP_ACCESS_TOKEN;
+
+  process.env.WAWP_API_URL = 'https://api.wawp.net';
+  process.env.WAWP_INSTANCE_ID = 'demo-instance';
+  process.env.WAWP_ACCESS_TOKEN = 'demo-token';
+
+  global.fetch = async (url, options) => {
+    const requestUrl = String(url);
+    if (!requestUrl.includes('api.wawp.net')) {
+      return originalFetch(url, options);
+    }
+
+    return new Response(JSON.stringify({ id: 'abc123', sent: true }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  };
+
+  const server = await startAuthApp();
+  const { port } = server.address();
+
+  try {
+    await fetch(`http://127.0.0.1:${port}/auth/request-otp`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone: '771234567' }),
+    });
+
+    const otp = authRouter.otpStore.get('+967771234567');
+    assert.ok(otp && otp.code);
+
+    const response = await fetch(`http://127.0.0.1:${port}/auth/verify-otp`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone: '771234567', otp: otp.code }),
+    });
+
+    const json = await response.json();
+    assert.equal(response.status, 200);
+    assert.equal(json.success, true);
+    assert.equal(json.phone, '+967771234567');
+  } finally {
+    server.close();
+    global.fetch = originalFetch;
+    if (originalApiUrl === undefined) delete process.env.WAWP_API_URL; else process.env.WAWP_API_URL = originalApiUrl;
+    if (originalInstanceId === undefined) delete process.env.WAWP_INSTANCE_ID; else process.env.WAWP_INSTANCE_ID = originalInstanceId;
+    if (originalToken === undefined) delete process.env.WAWP_ACCESS_TOKEN; else process.env.WAWP_ACCESS_TOKEN = originalToken;
+  }
+});
+
+test('request-otp reports Wawp delivery failures without storing the code', async () => {
+  const originalFetch = global.fetch;
+  const originalApiUrl = process.env.WAWP_API_URL;
+  const originalInstanceId = process.env.WAWP_INSTANCE_ID;
+  const originalToken = process.env.WAWP_ACCESS_TOKEN;
+
+  process.env.WAWP_API_URL = 'https://api.wawp.net';
+  process.env.WAWP_INSTANCE_ID = 'demo-instance';
+  process.env.WAWP_ACCESS_TOKEN = 'demo-token';
+  authRouter.otpStore.delete('+967771234567');
+  global.fetch = async (url, options) => {
+    if (!String(url).includes('api.wawp.net')) {
+      return originalFetch(url, options);
+    }
+
+    return new Response(JSON.stringify({ success: false, error: 'Unauthorized' }), {
+      status: 401,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  };
+
+  const server = await startAuthApp();
+  const { port } = server.address();
+
+  try {
+    const response = await fetch(`http://127.0.0.1:${port}/auth/request-otp`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone: '0771234567' }),
+    });
+
+    const json = await response.json();
+    assert.equal(response.status, 502);
+    assert.equal(json.success, false);
+    assert.equal(authRouter.otpStore.has('+967771234567'), false);
+  } finally {
+    server.close();
+    global.fetch = originalFetch;
+    if (originalApiUrl === undefined) delete process.env.WAWP_API_URL; else process.env.WAWP_API_URL = originalApiUrl;
+    if (originalInstanceId === undefined) delete process.env.WAWP_INSTANCE_ID; else process.env.WAWP_INSTANCE_ID = originalInstanceId;
+    if (originalToken === undefined) delete process.env.WAWP_ACCESS_TOKEN; else process.env.WAWP_ACCESS_TOKEN = originalToken;
+  }
+});
