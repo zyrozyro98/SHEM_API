@@ -3,6 +3,16 @@ const { randomInt } = require('node:crypto');
 const router = express.Router();
 
 const otpStore = new Map();
+const OTP_LIFETIME_MS = 5 * 60 * 1000;
+
+class WawpError extends Error {
+  constructor(message, code, statusCode) {
+    super(message);
+    this.name = 'WawpError';
+    this.code = code;
+    this.statusCode = statusCode;
+  }
+}
 
 const normalizePhone = (value = '') => {
   const digits = String(value)
@@ -33,7 +43,11 @@ const getWawpConfig = () => {
   const accessToken = process.env.WAWP_ACCESS_TOKEN;
 
   if (!instanceId || !accessToken) {
-    throw new Error('Wawp env vars missing: set WAWP_INSTANCE_ID and WAWP_ACCESS_TOKEN.');
+    throw new WawpError(
+      'Wawp credentials are not configured',
+      'WAWP_NOT_CONFIGURED',
+      503,
+    );
   }
 
   return { apiUrl, instanceId, accessToken };
@@ -42,32 +56,59 @@ const getWawpConfig = () => {
 const sendWhatsAppOtp = async (phone, code) => {
   const { apiUrl, instanceId, accessToken } = getWawpConfig();
   const endpoint = new URL(`${apiUrl}/v2/send/text`);
-  endpoint.search = new URLSearchParams({
-    instance_id: instanceId,
-    access_token: accessToken,
-  }).toString();
   const response = await fetch(endpoint, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       Accept: 'application/json',
     },
+    signal: AbortSignal.timeout(15000),
     body: JSON.stringify({
+      instance_id: instanceId,
+      access_token: accessToken,
       chatId: `${phone.replace(/^\+/, '')}@c.us`,
       message: `رمز التحقق الخاص بك من SHEM هو ${code}. صالح لمدة 5 دقائق.`,
     }),
   });
 
   const responseText = await response.text();
-  let data = {};
+  let data;
   try {
-    data = responseText ? JSON.parse(responseText) : {};
-  } catch (_) {
-    data = {};
+    data = responseText ? JSON.parse(responseText) : null;
+  } catch {
+    if (response.ok) {
+      throw new WawpError(
+        'Wawp returned a non-JSON success response',
+        'WAWP_INVALID_RESPONSE',
+        502,
+      );
+    }
   }
 
-  if (!response.ok || data?.error || data?.success === false) {
-    throw new Error(`Wawp request failed with status ${response.status}`);
+  if (!response.ok) {
+    const code = response.status === 401
+      ? 'WAWP_AUTH_FAILED'
+      : `WAWP_HTTP_${response.status}`;
+    throw new WawpError(
+      `Wawp request failed with status ${response.status}`,
+      code,
+      502,
+    );
+  }
+
+  const resultStatus = String(data?.status ?? '').toLowerCase();
+  if (
+    !data ||
+    typeof data !== 'object' ||
+    data.error ||
+    data.success === false ||
+    ['error', 'failed', 'failure'].includes(resultStatus)
+  ) {
+    throw new WawpError(
+      'Wawp rejected the message',
+      'WAWP_MESSAGE_REJECTED',
+      502,
+    );
   }
 
   return data;
@@ -86,12 +127,11 @@ router.post('/request-otp', async (req, res) => {
     }
 
     const code = String(randomInt(100000, 1000000));
+    await sendWhatsAppOtp(phone, code);
     otpStore.set(phone, {
       code,
-      expiresAt: Date.now() + 5 * 60 * 1000,
+      expiresAt: Date.now() + OTP_LIFETIME_MS,
     });
-
-    await sendWhatsAppOtp(phone, code);
     return res.json({
       success: true,
       message: 'تم إرسال رمز التحقق عبر واتساب.',
@@ -100,11 +140,23 @@ router.post('/request-otp', async (req, res) => {
   } catch (error) {
     const phone = normalizePhone(req.body?.phone ?? '');
     if (phone) otpStore.delete(phone);
-    console.error('WhatsApp OTP delivery failed:', error.message);
+    const code = error instanceof WawpError
+      ? error.code
+      : 'WAWP_DELIVERY_FAILED';
+    console.error(
+      'WhatsApp OTP delivery failed:',
+      code,
+      error.message,
+    );
 
-    return res.status(502).json({
+    return res.status(error instanceof WawpError ? error.statusCode : 502).json({
       success: false,
-      error: 'تعذر إرسال رمز التحقق عبر واتساب. حاول مرة أخرى لاحقًا.',
+      error_code: code,
+      error: code === 'WAWP_NOT_CONFIGURED'
+        ? 'خدمة واتساب غير مُهيأة على الخادم. يرجى التواصل مع الدعم.'
+        : code === 'WAWP_AUTH_FAILED'
+          ? 'بيانات اتصال واتساب غير صالحة. يرجى التواصل مع الدعم.'
+          : 'تعذر إرسال رمز التحقق عبر واتساب. حاول مرة أخرى لاحقًا.',
     });
   }
 });
