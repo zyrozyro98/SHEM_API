@@ -1,9 +1,5 @@
 const express = require('express');
-const { randomInt } = require('node:crypto');
 const router = express.Router();
-
-const otpStore = new Map();
-const OTP_LIFETIME_MS = 5 * 60 * 1000;
 
 class WawpError extends Error {
   constructor(message, code, statusCode) {
@@ -53,9 +49,9 @@ const getWawpConfig = () => {
   return { apiUrl, instanceId, accessToken };
 };
 
-const sendWhatsAppOtp = async (phone, code) => {
+const callWawp = async (path, payload) => {
   const { apiUrl, instanceId, accessToken } = getWawpConfig();
-  const endpoint = new URL(`${apiUrl}/v2/send/text`);
+  const endpoint = new URL(`${apiUrl}${path}`);
   const response = await fetch(endpoint, {
     method: 'POST',
     headers: {
@@ -66,8 +62,7 @@ const sendWhatsAppOtp = async (phone, code) => {
     body: JSON.stringify({
       instance_id: instanceId,
       access_token: accessToken,
-      chatId: `${phone.replace(/^\+/, '')}@c.us`,
-      message: `رمز التحقق الخاص بك من SHEM هو ${code}. صالح لمدة 5 دقائق.`,
+      ...payload,
     }),
   });
 
@@ -86,33 +81,69 @@ const sendWhatsAppOtp = async (phone, code) => {
   }
 
   if (!response.ok) {
+    const providerCode = String(data?.code ?? data?.error_code ?? '')
+      .toLowerCase();
     const code = response.status === 401
       ? 'WAWP_AUTH_FAILED'
-      : `WAWP_HTTP_${response.status}`;
+      : response.status === 429
+        ? 'WAWP_RATE_LIMITED'
+        : response.status === 400
+          ? 'WAWP_OTP_INVALID'
+      : response.status === 404 &&
+          ['invalid_session', 'session_not_found'].includes(providerCode)
+        ? 'WAWP_SESSION_NOT_FOUND'
+        : `WAWP_HTTP_${response.status}`;
     throw new WawpError(
       `Wawp request failed with status ${response.status}`,
       code,
+      code === 'WAWP_RATE_LIMITED' ? 429
+        : code === 'WAWP_OTP_INVALID' ? 400 : 502,
+    );
+  }
+
+  if (!data || typeof data !== 'object' || Array.isArray(data)) {
+    throw new WawpError(
+      'Wawp returned an invalid response',
+      'WAWP_INVALID_RESPONSE',
       502,
     );
   }
 
-  const resultStatus = String(data?.status ?? '').toLowerCase();
+  const providerCode = String(data.code ?? '').toLowerCase();
   if (
-    !data ||
-    typeof data !== 'object' ||
+    providerCode !== 'success' ||
     data.error ||
     data.success === false ||
-    ['error', 'failed', 'failure'].includes(resultStatus)
+    ['error', 'failed', 'failure'].includes(
+      String(data.status ?? '').toLowerCase(),
+    )
   ) {
+    const isInvalidOtp = [
+      'invalid_otp',
+      'invalid_code',
+      'otp_expired',
+      'expired_otp',
+    ].includes(providerCode);
     throw new WawpError(
-      'Wawp rejected the message',
-      'WAWP_MESSAGE_REJECTED',
-      502,
+      `Wawp rejected the request: ${providerCode || 'unknown'}`,
+      isInvalidOtp ? 'WAWP_OTP_INVALID' : 'WAWP_REQUEST_REJECTED',
+      isInvalidOtp ? 400 : 502,
     );
   }
 
   return data;
 };
+
+const sendWhatsAppOtp = (phone) => callWawp('/v2/auth/otp/send', {
+  chatId: phone.replace(/^\+/, ''),
+  lang: 'ar',
+  message: 'رمز التحقق الخاص بك من SHEM هو {{otp}}. صالح لمدة 5 دقائق.',
+});
+
+const verifyWhatsAppOtp = (phone, code) => callWawp('/v2/auth/otp/verify', {
+  chatId: phone.replace(/^\+/, ''),
+  code,
+});
 
 router.post('/request-otp', async (req, res) => {
   try {
@@ -126,20 +157,13 @@ router.post('/request-otp', async (req, res) => {
       });
     }
 
-    const code = String(randomInt(100000, 1000000));
-    await sendWhatsAppOtp(phone, code);
-    otpStore.set(phone, {
-      code,
-      expiresAt: Date.now() + OTP_LIFETIME_MS,
-    });
+    await sendWhatsAppOtp(phone);
     return res.json({
       success: true,
       message: 'تم إرسال رمز التحقق عبر واتساب.',
       phone,
     });
   } catch (error) {
-    const phone = normalizePhone(req.body?.phone ?? '');
-    if (phone) otpStore.delete(phone);
     const code = error instanceof WawpError
       ? error.code
       : 'WAWP_DELIVERY_FAILED';
@@ -156,12 +180,16 @@ router.post('/request-otp', async (req, res) => {
         ? 'خدمة واتساب غير مُهيأة على الخادم. يرجى التواصل مع الدعم.'
         : code === 'WAWP_AUTH_FAILED'
           ? 'بيانات اتصال واتساب غير صالحة. يرجى التواصل مع الدعم.'
+          : code === 'WAWP_SESSION_NOT_FOUND'
+            ? 'جلسة واتساب غير موجودة أو غير نشطة. تحقق من WAWP_INSTANCE_ID وحالة الجلسة في لوحة Wawp.'
+            : code === 'WAWP_RATE_LIMITED'
+              ? 'تم طلب رمز تحقق مؤخرًا. انتظر قليلًا ثم حاول مرة أخرى.'
           : 'تعذر إرسال رمز التحقق عبر واتساب. حاول مرة أخرى لاحقًا.',
     });
   }
 });
 
-router.post('/verify-otp', (req, res) => {
+router.post('/verify-otp', async (req, res) => {
   try {
     const phone = normalizePhone(req.body?.phone ?? '');
     const otp = String(req.body?.otp ?? '').replace(/\D/g, '');
@@ -173,30 +201,14 @@ router.post('/verify-otp', (req, res) => {
       });
     }
 
-    const record = otpStore.get(phone);
-    if (!record) {
-      return res.status(400).json({
-        success: false,
-        error: 'لم يتم إرسال رمز تحقق لهذا الرقم',
-      });
-    }
-
-    if (Date.now() > record.expiresAt) {
-      otpStore.delete(phone);
-      return res.status(400).json({
-        success: false,
-        error: 'انتهت صلاحية رمز التحقق. أعد الطلب من جديد.',
-      });
-    }
-
-    if (otp.length !== 6 || otp !== record.code) {
+    if (otp.length !== 6) {
       return res.status(400).json({
         success: false,
         error: 'رمز التحقق غير صحيح',
       });
     }
 
-    otpStore.delete(phone);
+    await verifyWhatsAppOtp(phone, otp);
     return res.json({
       success: true,
       message: 'تم التحقق من رقم الهاتف بنجاح',
@@ -205,12 +217,25 @@ router.post('/verify-otp', (req, res) => {
       user: { phone },
     });
   } catch (error) {
-    return res.status(400).json({
-      success: false,
-      error: error.message || 'فشل التحقق',
-    });
+    const code = error instanceof WawpError
+      ? error.code
+      : 'WAWP_VERIFICATION_FAILED';
+    console.error('WhatsApp OTP verification failed:', code, error.message);
+    return res.status(error instanceof WawpError ? error.statusCode : 502)
+      .json({
+        success: false,
+        error_code: code,
+        error: code === 'WAWP_NOT_CONFIGURED'
+          ? 'خدمة واتساب غير مُهيأة على الخادم. يرجى التواصل مع الدعم.'
+          : code === 'WAWP_AUTH_FAILED'
+            ? 'بيانات اتصال واتساب غير صالحة. يرجى التواصل مع الدعم.'
+            : code === 'WAWP_RATE_LIMITED'
+              ? 'تجاوزت عدد محاولات التحقق. انتظر قليلًا ثم حاول مرة أخرى.'
+              : code === 'WAWP_SESSION_NOT_FOUND'
+                ? 'جلسة واتساب غير موجودة أو غير نشطة. تحقق من الإعدادات.'
+                : 'رمز التحقق غير صحيح أو انتهت صلاحيته.',
+      });
   }
 });
 
-router.otpStore = otpStore;
 module.exports = router;
