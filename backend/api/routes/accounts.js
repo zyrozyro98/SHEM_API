@@ -1,5 +1,8 @@
 const express = require('express');
-const { getFirebaseApp } = require('../services/firebase_admin');
+const {
+  getFirebaseAuth,
+  getFirebaseDatabase,
+} = require('../services/firebase_admin');
 const { normalizePhone, passwordMatches } = require('../services/auth_utils');
 
 const terminalCustomerStatuses = new Set(['delivered', 'cancelled']);
@@ -85,11 +88,11 @@ function hasActiveMerchantOrder(orders, merchantIds, owners) {
 function createFirebaseDependencies() {
   return {
     read: async (path) => {
-      const snapshot = await getFirebaseApp().database().ref(path).once('value');
+      const snapshot = await getFirebaseDatabase().ref(path).once('value');
       return snapshot.val() ?? {};
     },
-    update: (updates) => getFirebaseApp().database().ref().update(updates),
-    deleteAuthUser: (uid) => getFirebaseApp().auth().deleteUser(uid),
+    update: (updates) => getFirebaseDatabase().ref().update(updates),
+    deleteAuthUser: (uid) => getFirebaseAuth().deleteUser(uid),
   };
 }
 
@@ -276,8 +279,16 @@ function createAccountsRouter(dependencies = createFirebaseDependencies()) {
 
       return res.json({ success: true });
     } catch (error) {
-      console.error('Account deletion failed:', error.code ?? 'unknown');
-      const status = error.code === 'FIREBASE_ADMIN_NOT_CONFIGURED' ? 503 : 500;
+      const errorCode = error?.code;
+      const errorMessage = error instanceof Error
+        ? error.message
+        : String(error);
+      console.error(
+        'Account deletion failed:',
+        errorCode ?? 'unknown',
+        errorMessage,
+      );
+      const status = errorCode === 'FIREBASE_ADMIN_NOT_CONFIGURED' ? 503 : 500;
       return res.status(status).json({
         error_code: status === 503
           ? 'account_deletion_not_configured'
