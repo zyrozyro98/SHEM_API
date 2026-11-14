@@ -93,6 +93,7 @@ function hashPassword(password) {
 
 async function postSession({ phone, password }) {
   let linkedAccount;
+  let customTokenClaims;
   const app = express();
   app.use(express.json());
   app.use('/media', require(mediaModulePath).createMediaRouter({
@@ -100,9 +101,13 @@ async function postSession({ phone, password }) {
       ? {
           id: phoneKey,
           password_hash: hashPassword('correct horse'),
+          role: 'merchant',
         }
       : null,
-    createCustomToken: async (uid) => `custom-token-${uid}`,
+    createCustomToken: async (uid, claims) => {
+      customTokenClaims = claims;
+      return `custom-token-${uid}`;
+    },
     verifyIdToken: async () => ({ uid: 'user-1' }),
     linkAuthUid: async (phoneKey, uid) => {
       linkedAccount = { phoneKey, uid };
@@ -124,6 +129,7 @@ async function postSession({ phone, password }) {
       status: response.status,
       body: await response.json(),
       linkedAccount,
+      customTokenClaims,
     };
   } finally {
     await new Promise((resolve) => server.close(resolve));
@@ -144,6 +150,11 @@ test('phone/password media session returns a Firebase custom token', async () =>
   assert.deepEqual(result.linkedAccount, {
     phoneKey: '967771234567',
     uid: '967771234567',
+  });
+  assert.deepEqual(result.customTokenClaims, {
+    profile_id: '967771234567',
+    role: 'merchant',
+    otp_verified: false,
   });
 });
 
@@ -205,6 +216,54 @@ test('media upload rejects videos larger than 12 MiB', async () => {
   const result = await postMedia({ bytes });
 
   assert.equal(result.status, 413);
+  assert.equal(result.githubRequest, undefined);
+});
+
+test('media upload stores product images in the products directory', async () => {
+  const result = await postMedia({
+    bytes: Buffer.from('product image'),
+    contentType: 'image/jpeg',
+    fileName: 'product.jpg',
+  });
+
+  assert.equal(result.status, 201);
+  assert.match(result.githubRequest.url, /assets\/products\/.+\.jpg$/);
+  assert.match(result.body.url, /raw\.githubusercontent\.com.+\.jpg$/);
+});
+
+test('media upload stores payment proof images in the receipts directory', async () => {
+  const result = await postMedia({
+    bytes: Buffer.from('payment proof'),
+    contentType: 'image/jpeg',
+    mediaType: 'receipts',
+    fileName: 'receipt.jpg',
+  });
+
+  assert.equal(result.status, 201);
+  assert.match(result.githubRequest.url, /assets\/receipts\/.+\.jpg$/);
+  assert.match(result.body.url, /raw\.githubusercontent\.com.+\.jpg$/);
+});
+
+test('media upload stores promotion images in the promotions directory', async () => {
+  const result = await postMedia({
+    bytes: Buffer.from('promotion image'),
+    contentType: 'image/png',
+    mediaType: 'promotions',
+    fileName: 'promotion.png',
+  });
+
+  assert.equal(result.status, 201);
+  assert.match(result.githubRequest.url, /assets\/promotions\/.+\.png$/);
+  assert.match(result.body.url, /raw\.githubusercontent\.com.+\.png$/);
+});
+
+test('media upload rejects videos for promotion images', async () => {
+  const bytes = Buffer.alloc(32);
+  Buffer.from('ftyp').copy(bytes, 4);
+
+  const result = await postMedia({ bytes, mediaType: 'promotions' });
+
+  assert.equal(result.status, 400);
   assert.equal(result.githubRequest, undefined);
 });
 

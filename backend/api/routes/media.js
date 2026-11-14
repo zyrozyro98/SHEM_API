@@ -40,13 +40,16 @@ function createFirebaseDependencies() {
         .ref(`profiles/${phoneKey}`).once('value');
       return snapshot.val();
     },
-    createCustomToken: (uid) => getFirebaseAuth().createCustomToken(uid),
+    createCustomToken: (uid, claims) =>
+      getFirebaseAuth().createCustomToken(uid, claims),
     verifyIdToken: (token) => getFirebaseAuth().verifyIdToken(token),
     linkAuthUid: async (phoneKey, uid, profile) => {
       const updates = {
         [`auth_index/${uid}`]: {
           phone: profile.phone ?? `+${phoneKey}`,
           email: profile.email ?? null,
+          profile_id: String(profile.id ?? phoneKey),
+          role: String(profile.role ?? 'customer').trim().toLowerCase(),
         },
       };
       if (!profile.auth_uid && !profile.authUid) {
@@ -107,7 +110,11 @@ function createMediaRouter(dependencies = createFirebaseDependencies()) {
       }
 
       failedSessions.delete(attemptKey);
-      const customToken = await createCustomToken(uid);
+      const customToken = await createCustomToken(uid, {
+        profile_id: String(profile.id ?? phoneKey),
+        role: String(profile.role ?? 'customer').trim().toLowerCase(),
+        otp_verified: false,
+      });
       await linkAuthUid(phoneKey, uid, profile);
       return res.json({ success: true, custom_token: customToken });
     } catch (error) {
