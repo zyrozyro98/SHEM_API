@@ -4,9 +4,13 @@ const express = require('express');
 
 const mediaModulePath = require.resolve('../routes/media');
 const nodeFetchPath = require.resolve('node-fetch');
+const firebaseAdmin = require('../services/firebase_admin');
 const originalNodeFetch = require(nodeFetchPath);
 const maxVideoBytes = 12 * 1024 * 1024;
 const validIdToken = 'test-firebase-id-token';
+
+firebaseAdmin.getFirebaseAuth = () => ({});
+firebaseAdmin.getFirebaseDatabase = () => ({});
 
 async function postMedia({
   bytes,
@@ -82,6 +86,83 @@ async function postMedia({
         process.env[key] = value;
       }
     }
+  }
+}
+
+async function postSwitchSession({ path, body, expired = false }) {
+  const sessionId = '123e4567-e89b-12d3-a456-426614174000';
+  const sessionSecret = 'a'.repeat(64);
+  const hashSecret = (secret) => require('crypto').createHash('sha256')
+    .update(secret)
+    .digest('hex');
+  const profile = {
+    id: 'profile-1',
+    auth_uid: 'user-1',
+    role: 'merchant',
+    full_name: 'Test Merchant',
+  };
+  const storedSession = {
+    uid: 'user-1',
+    profile_id: 'profile-1',
+    secret_hash: hashSecret(sessionSecret),
+    expires_at_ms: Date.now() + (expired ? -1_000 : 60_000),
+    absolute_expires_at_ms: Date.now() + 60_000,
+  };
+  const calls = {};
+  const app = express();
+  app.use(express.json());
+  app.use('/media', require(mediaModulePath).createMediaRouter({
+    readProfile: async (profileId) =>
+      profileId === 'profile-1' ? profile : null,
+    resolveProfile: async () => ({ profileId: 'profile-1', profile }),
+    createCustomToken: async (uid) => `custom-token-${uid}`,
+    verifyIdToken: async (token) => {
+      if (token !== validIdToken) throw new Error('Invalid token');
+      return { uid: 'user-1', profile_id: 'profile-1' };
+    },
+    createSwitchSession: async (input) => {
+      calls.create = input;
+      return {
+        sessionId,
+        sessionSecret,
+        expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      };
+    },
+    readSwitchSession: async () => storedSession,
+    rotateSwitchSession: async (input) => {
+      calls.rotate = input;
+      return storedSession;
+    },
+    revokeSwitchSession: async (input) => {
+      calls.revoke = input;
+      return true;
+    },
+  }));
+  const server = app.listen(0);
+  await new Promise((resolve) => server.once('listening', resolve));
+
+  try {
+    const response = await fetch(
+      `http://127.0.0.1:${server.address().port}/media${path}`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${validIdToken}`,
+        },
+        body: JSON.stringify(body),
+      },
+    );
+    return {
+      status: response.status,
+      body: await response.json(),
+      calls,
+      sessionId,
+      sessionSecret,
+      hashSecret,
+    };
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
   }
 }
 
@@ -166,6 +247,92 @@ test('phone/password media session rejects invalid credentials', async () => {
 
   assert.equal(result.status, 401);
   assert.equal(result.body.error_code, 'invalid_credentials');
+});
+
+test('switch account session is bound to the authenticated profile', async () => {
+  const result = await postSwitchSession({
+    path: '/switch-sessions',
+    body: {},
+  });
+
+  assert.equal(result.status, 201);
+  assert.equal(result.body.success, true);
+  assert.equal(result.body.session_id, result.sessionId);
+  assert.equal(result.body.session_secret, result.sessionSecret);
+  assert.deepEqual(result.calls.create, {
+    uid: 'user-1',
+    profileId: 'profile-1',
+    role: 'merchant',
+  });
+});
+
+test('restoring a saved account rotates its secret and returns a custom token', async () => {
+  const result = await postSwitchSession({
+    path: '/switch-sessions/restore',
+    body: {
+      session_id: '123e4567-e89b-12d3-a456-426614174000',
+      session_secret: 'a'.repeat(64),
+    },
+  });
+
+  assert.equal(result.status, 200);
+  assert.equal(result.body.success, true);
+  assert.equal(result.body.custom_token, 'custom-token-user-1');
+  assert.match(result.body.session_secret, /^[0-9a-f]{64}$/);
+  assert.equal(
+    result.calls.rotate.oldSecretHash,
+    result.hashSecret(result.sessionSecret),
+  );
+  assert.equal(
+    result.calls.rotate.newSecretHash,
+    result.hashSecret(result.body.session_secret),
+  );
+});
+
+test('restoring a saved account rejects an incorrect secret without rotating', async () => {
+  const result = await postSwitchSession({
+    path: '/switch-sessions/restore',
+    body: {
+      session_id: '123e4567-e89b-12d3-a456-426614174000',
+      session_secret: 'b'.repeat(64),
+    },
+  });
+
+  assert.equal(result.status, 401);
+  assert.equal(result.body.error_code, 'invalid_switch_session');
+  assert.equal(result.calls.rotate, undefined);
+});
+
+test('restoring an expired saved account does not issue a custom token', async () => {
+  const result = await postSwitchSession({
+    path: '/switch-sessions/restore',
+    body: {
+      session_id: '123e4567-e89b-12d3-a456-426614174000',
+      session_secret: 'a'.repeat(64),
+    },
+    expired: true,
+  });
+
+  assert.equal(result.status, 401);
+  assert.equal(result.body.error_code, 'invalid_switch_session');
+  assert.equal(result.calls.rotate, undefined);
+});
+
+test('removing a saved account revokes its matching server session', async () => {
+  const result = await postSwitchSession({
+    path: '/switch-sessions/revoke',
+    body: {
+      session_id: '123e4567-e89b-12d3-a456-426614174000',
+      session_secret: 'a'.repeat(64),
+    },
+  });
+
+  assert.equal(result.status, 200);
+  assert.equal(result.body.success, true);
+  assert.deepEqual(result.calls.revoke, {
+    sessionId: result.sessionId,
+    secretHash: result.hashSecret(result.sessionSecret),
+  });
 });
 
 test('media upload rejects requests without a Firebase ID token', async () => {

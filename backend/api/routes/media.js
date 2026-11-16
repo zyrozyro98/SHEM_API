@@ -1,4 +1,5 @@
 const express = require('express');
+const crypto = require('crypto');
 const multer = require('multer');
 const fetch = require('node-fetch');
 const { v4: uuidv4 } = require('uuid');
@@ -33,12 +34,58 @@ const upload = multer({
   },
 });
 
+const switchSessionIdleLifetimeMs = 30 * 24 * 60 * 60 * 1000;
+const switchSessionAbsoluteLifetimeMs = 180 * 24 * 60 * 60 * 1000;
+
+function hashSwitchSecret(secret) {
+  return crypto.createHash('sha256').update(secret).digest('hex');
+}
+
+function hashesMatch(first, second) {
+  if (!/^[a-f0-9]{64}$/i.test(first) || !/^[a-f0-9]{64}$/i.test(second)) {
+    return false;
+  }
+  return crypto.timingSafeEqual(
+    Buffer.from(first, 'hex'),
+    Buffer.from(second, 'hex'),
+  );
+}
+
+function publicProfile(profile) {
+  const safeProfile = { ...profile };
+  delete safeProfile.password_hash;
+  delete safeProfile.passwordHash;
+  delete safeProfile.auth_uid;
+  delete safeProfile.authUid;
+  return safeProfile;
+}
+
 function createFirebaseDependencies() {
   return {
     readProfile: async (phoneKey) => {
       const snapshot = await getFirebaseDatabase()
         .ref(`profiles/${phoneKey}`).once('value');
       return snapshot.val();
+    },
+    resolveProfile: async (uid, claims) => {
+      const database = getFirebaseDatabase();
+      const authIndexSnapshot = await database.ref(`auth_index/${uid}`)
+        .once('value');
+      const authIndex = authIndexSnapshot.val() ?? {};
+      const profileId = String(
+        claims.profile_id ||
+        authIndex.profile_id ||
+        normalizeYemenPhoneKey(authIndex.phone) ||
+        uid,
+      ).trim();
+      return {
+        profileId,
+        profile: await (async () => {
+          const snapshot = await database.ref(`profiles/${profileId}`)
+            .once('value');
+          return snapshot.val();
+        })(),
+      };
     },
     createCustomToken: (uid, claims) =>
       getFirebaseAuth().createCustomToken(uid, claims),
@@ -57,6 +104,73 @@ function createFirebaseDependencies() {
       }
       await getFirebaseDatabase().ref().update(updates);
     },
+    createSwitchSession: async ({ uid, profileId, role }) => {
+      const database = getFirebaseDatabase();
+      const sessionId = uuidv4();
+      const sessionSecret = crypto.randomBytes(32).toString('hex');
+      const now = Date.now();
+      const expiresAt = now + switchSessionIdleLifetimeMs;
+      const absoluteExpiresAt = now + switchSessionAbsoluteLifetimeMs;
+      await database.ref(`auth_switch_sessions/${sessionId}`).set({
+        uid,
+        profile_id: profileId,
+        role,
+        secret_hash: hashSwitchSecret(sessionSecret),
+        created_at: new Date(now).toISOString(),
+        last_used_at: new Date(now).toISOString(),
+        expires_at_ms: expiresAt,
+        absolute_expires_at_ms: absoluteExpiresAt,
+      });
+      return {
+        sessionId,
+        sessionSecret,
+        expiresAt: new Date(expiresAt).toISOString(),
+      };
+    },
+    readSwitchSession: async (sessionId) => {
+      const snapshot = await getFirebaseDatabase()
+        .ref(`auth_switch_sessions/${sessionId}`).once('value');
+      return snapshot.val();
+    },
+    rotateSwitchSession: async ({
+      sessionId,
+      oldSecretHash,
+      newSecretHash,
+      now,
+    }) => {
+      const reference = getFirebaseDatabase()
+        .ref(`auth_switch_sessions/${sessionId}`);
+      const result = await reference.transaction((current) => {
+        if (!current ||
+            !hashesMatch(current.secret_hash ?? '', oldSecretHash) ||
+            Number(current.expires_at_ms) <= now ||
+            Number(current.absolute_expires_at_ms) <= now) {
+          return;
+        }
+        return {
+          ...current,
+          secret_hash: newSecretHash,
+          last_used_at: new Date(now).toISOString(),
+          expires_at_ms: Math.min(
+            now + switchSessionIdleLifetimeMs,
+            Number(current.absolute_expires_at_ms),
+          ),
+        };
+      }, undefined, false);
+      return result.committed ? result.snapshot.val() : null;
+    },
+    revokeSwitchSession: async ({ sessionId, secretHash }) => {
+      const reference = getFirebaseDatabase()
+        .ref(`auth_switch_sessions/${sessionId}`);
+      const result = await reference.transaction((current) => {
+        if (!current ||
+            !hashesMatch(current.secret_hash ?? '', secretHash)) {
+          return;
+        }
+        return null;
+      }, undefined, false);
+      return result.committed && result.snapshot.val() == null;
+    },
   };
 }
 
@@ -67,7 +181,12 @@ function createMediaRouter(dependencies = createFirebaseDependencies()) {
     readProfile,
     createCustomToken,
     verifyIdToken,
+    resolveProfile,
     linkAuthUid = async () => {},
+    createSwitchSession,
+    readSwitchSession,
+    rotateSwitchSession,
+    revokeSwitchSession,
   } = dependencies;
 
   router.post('/session', async (req, res) => {
@@ -124,6 +243,172 @@ function createMediaRouter(dependencies = createFirebaseDependencies()) {
         error_code: status === 503
           ? 'media_auth_not_configured'
           : 'media_session_failed',
+      });
+    }
+  });
+
+  router.post('/switch-sessions', async (req, res) => {
+    const authorization = req.headers.authorization ?? '';
+    const match = /^Bearer\s+(.+)$/i.exec(authorization);
+    if (!match) {
+      return res.status(401).json({ error_code: 'authentication_required' });
+    }
+
+    try {
+      const user = await verifyIdToken(match[1]);
+      const { profileId, profile } = await resolveProfile(user.uid, user);
+      if (!profile || !profileId) {
+        return res.status(404).json({ error_code: 'account_not_found' });
+      }
+
+      const linkedUid = String(profile.auth_uid || profile.authUid || '').trim();
+      if (
+        (linkedUid && linkedUid !== user.uid) ||
+        (user.uid !== profileId && String(user.profile_id ?? '') !== profileId)
+      ) {
+        return res.status(403).json({ error_code: 'forbidden' });
+      }
+      if (typeof createSwitchSession !== 'function') {
+        return res.status(503).json({ error_code: 'switch_sessions_unavailable' });
+      }
+
+      const role = String(profile.role ?? 'customer').trim().toLowerCase();
+      const session = await createSwitchSession({
+        uid: user.uid,
+        profileId,
+        role,
+      });
+      return res.status(201).json({
+        success: true,
+        session_id: session.sessionId,
+        session_secret: session.sessionSecret,
+        expires_at: session.expiresAt,
+      });
+    } catch (error) {
+      console.error('Persistent account session creation failed:',
+        error.code ?? 'unknown');
+      const status = error.code === 'FIREBASE_ADMIN_NOT_CONFIGURED' ? 503 : 500;
+      return res.status(status).json({
+        error_code: status === 503
+          ? 'media_auth_not_configured'
+          : 'switch_session_creation_failed',
+      });
+    }
+  });
+
+  router.post('/switch-sessions/restore', async (req, res) => {
+    const sessionId = String(req.body?.session_id ?? '').trim();
+    const sessionSecret = String(req.body?.session_secret ?? '').trim();
+    if (
+      !/^[0-9a-f-]{36}$/i.test(sessionId) ||
+      !/^[0-9a-f]{64}$/i.test(sessionSecret)
+    ) {
+      return res.status(400).json({ error_code: 'invalid_switch_session' });
+    }
+    if (
+      typeof readSwitchSession !== 'function' ||
+      typeof rotateSwitchSession !== 'function'
+    ) {
+      return res.status(503).json({ error_code: 'switch_sessions_unavailable' });
+    }
+
+    try {
+      const session = await readSwitchSession(sessionId);
+      const now = Date.now();
+      if (!session ||
+          Number(session.expires_at_ms) <= now ||
+          Number(session.absolute_expires_at_ms) <= now ||
+          !hashesMatch(
+            String(session.secret_hash ?? ''),
+            hashSwitchSecret(sessionSecret),
+          )) {
+        return res.status(401).json({ error_code: 'invalid_switch_session' });
+      }
+
+      const profileId = String(session.profile_id ?? '').trim();
+      const uid = String(session.uid ?? '').trim();
+      const profile = profileId ? await readProfile(profileId) : null;
+      if (!profile || !uid) {
+        return res.status(401).json({ error_code: 'account_not_found' });
+      }
+
+      const linkedUid = String(profile.auth_uid || profile.authUid || '').trim();
+      if (linkedUid && linkedUid !== uid && uid !== profileId) {
+        return res.status(401).json({ error_code: 'invalid_switch_session' });
+      }
+
+      const role = String(profile.role ?? 'customer').trim().toLowerCase();
+      const customToken = await createCustomToken(uid, {
+        profile_id: profileId,
+        role,
+        otp_verified: false,
+      });
+      const nextSecret = crypto.randomBytes(32).toString('hex');
+      const nextExpiresAt = Math.min(
+        now + switchSessionIdleLifetimeMs,
+        Number(session.absolute_expires_at_ms),
+      );
+      const rotated = await rotateSwitchSession({
+        sessionId,
+        oldSecretHash: hashSwitchSecret(sessionSecret),
+        newSecretHash: hashSwitchSecret(nextSecret),
+        now,
+      });
+      if (!rotated) {
+        return res.status(401).json({ error_code: 'invalid_switch_session' });
+      }
+
+      return res.json({
+        success: true,
+        custom_token: customToken,
+        profile_id: profileId,
+        role,
+        session_secret: nextSecret,
+        expires_at: new Date(nextExpiresAt).toISOString(),
+        profile: publicProfile(profile),
+      });
+    } catch (error) {
+      console.error('Persistent account session restore failed:',
+        error.code ?? 'unknown');
+      const status = error.code === 'FIREBASE_ADMIN_NOT_CONFIGURED' ? 503 : 500;
+      return res.status(status).json({
+        error_code: status === 503
+          ? 'media_auth_not_configured'
+          : 'switch_session_restore_failed',
+      });
+    }
+  });
+
+  router.post('/switch-sessions/revoke', async (req, res) => {
+    const sessionId = String(req.body?.session_id ?? '').trim();
+    const sessionSecret = String(req.body?.session_secret ?? '').trim();
+    if (
+      !/^[0-9a-f-]{36}$/i.test(sessionId) ||
+      !/^[0-9a-f]{64}$/i.test(sessionSecret)
+    ) {
+      return res.status(400).json({ error_code: 'invalid_switch_session' });
+    }
+    if (typeof revokeSwitchSession !== 'function') {
+      return res.status(503).json({ error_code: 'switch_sessions_unavailable' });
+    }
+
+    try {
+      const revoked = await revokeSwitchSession({
+        sessionId,
+        secretHash: hashSwitchSecret(sessionSecret),
+      });
+      if (!revoked) {
+        return res.status(401).json({ error_code: 'invalid_switch_session' });
+      }
+      return res.json({ success: true });
+    } catch (error) {
+      console.error('Persistent account session revocation failed:',
+        error.code ?? 'unknown');
+      const status = error.code === 'FIREBASE_ADMIN_NOT_CONFIGURED' ? 503 : 500;
+      return res.status(status).json({
+        error_code: status === 503
+          ? 'media_auth_not_configured'
+          : 'switch_session_revoke_failed',
       });
     }
   });
