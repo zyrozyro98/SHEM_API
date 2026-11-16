@@ -1,0 +1,6 @@
+{
+  "dependencies": {
+    "@descope/node-sdk": "^2.20.0",
+    "firebase-admin": "^14.5.0"
+  }
+}

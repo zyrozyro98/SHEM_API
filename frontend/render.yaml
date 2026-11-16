@@ -1,0 +1,37 @@
+services:
+  - type: web
+    name: shem-media-api
+    runtime: node
+    rootDir: backend/api
+    buildCommand: npm ci --omit=dev && npm test
+    startCommand: node index.js
+    healthCheckPath: /
+    envVars:
+      - key: PORT
+        value: 8080
+      - key: MEDIA_ALLOW_LOCAL_UPLOADS
+        value: "false"
+      - key: WAWP_INSTANCE_ID
+        sync: false
+      - key: WAWP_ACCESS_TOKEN
+        sync: false
+      - key: WAWP_API_URL
+        value: https://api.wawp.net
+      - key: GITHUB_TOKEN
+        sync: false
+      - key: GITHUB_REPOSITORY
+        value: zyrozyro98/SHEM_API
+      - key: GITHUB_BRANCH
+        value: main
+      - key: FIREBASE_DATABASE_URL
+        value: https://she-m-8d0f5-default-rtdb.asia-southeast1.firebasedatabase.app
+      - key: FIREBASE_SERVICE_ACCOUNT_JSON
+        sync: false
+      - key: GITHUB_PRODUCTS_DIRECTORY
+        value: assets/products
+      - key: GITHUB_RECEIPTS_DIRECTORY
+        value: assets/receipts
+      - key: GITHUB_PROFILES_DIRECTORY
+        value: assets/profiles
+      - key: GITHUB_PROMOTIONS_DIRECTORY
+        value: assets/promotions

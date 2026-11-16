@@ -1,0 +1,31 @@
+name: Firebase Database Sync
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    env:
+      FIREBASE_DATABASE_URL: https://she-m-8d0f5-default-rtdb.firebaseio.com
+      FIREBASE_DATABASE_SECRET: ${{ secrets.FIREBASE_DATABASE_SECRET }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Validate Firebase secret
+        run: |
+          if [ -z "$FIREBASE_DATABASE_SECRET" ]; then
+            echo "FIREBASE_DATABASE_SECRET is missing"
+            exit 1
+          fi
+
+      - name: Write app status to Firebase Realtime Database
+        run: |
+          curl -X PUT \
+            -H "Content-Type: application/json" \
+            -d '{"status":"connected","updatedAt":"'"$(date -u -Iseconds)"'"}' \
+            "$FIREBASE_DATABASE_URL/app-status.json?auth=$FIREBASE_DATABASE_SECRET"
