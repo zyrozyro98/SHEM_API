@@ -132,24 +132,18 @@ function createFirebaseDependencies() {
         .ref(`auth_switch_sessions/${sessionId}`).once('value');
       return snapshot.val();
     },
-    rotateSwitchSession: async ({
-      sessionId,
-      oldSecretHash,
-      newSecretHash,
-      now,
-    }) => {
+    refreshSwitchSession: async ({ sessionId, secretHash, now }) => {
       const reference = getFirebaseDatabase()
         .ref(`auth_switch_sessions/${sessionId}`);
       const result = await reference.transaction((current) => {
         if (!current ||
-            !hashesMatch(current.secret_hash ?? '', oldSecretHash) ||
+            !hashesMatch(current.secret_hash ?? '', secretHash) ||
             Number(current.expires_at_ms) <= now ||
             Number(current.absolute_expires_at_ms) <= now) {
           return;
         }
         return {
           ...current,
-          secret_hash: newSecretHash,
           last_used_at: new Date(now).toISOString(),
           expires_at_ms: Math.min(
             now + switchSessionIdleLifetimeMs,
@@ -185,7 +179,7 @@ function createMediaRouter(dependencies = createFirebaseDependencies()) {
     linkAuthUid = async () => {},
     createSwitchSession,
     readSwitchSession,
-    rotateSwitchSession,
+    refreshSwitchSession,
     revokeSwitchSession,
   } = dependencies;
 
@@ -307,7 +301,7 @@ function createMediaRouter(dependencies = createFirebaseDependencies()) {
     }
     if (
       typeof readSwitchSession !== 'function' ||
-      typeof rotateSwitchSession !== 'function'
+      typeof refreshSwitchSession !== 'function'
     ) {
       return res.status(503).json({ error_code: 'switch_sessions_unavailable' });
     }
@@ -337,34 +331,29 @@ function createMediaRouter(dependencies = createFirebaseDependencies()) {
         return res.status(401).json({ error_code: 'invalid_switch_session' });
       }
 
+      const refreshed = await refreshSwitchSession({
+        sessionId,
+        secretHash: hashSwitchSecret(sessionSecret),
+        now,
+      });
+      if (!refreshed) {
+        return res.status(401).json({ error_code: 'invalid_switch_session' });
+      }
+
       const role = String(profile.role ?? 'customer').trim().toLowerCase();
       const customToken = await createCustomToken(uid, {
         profile_id: profileId,
         role,
         otp_verified: false,
       });
-      const nextSecret = crypto.randomBytes(32).toString('hex');
-      const nextExpiresAt = Math.min(
-        now + switchSessionIdleLifetimeMs,
-        Number(session.absolute_expires_at_ms),
-      );
-      const rotated = await rotateSwitchSession({
-        sessionId,
-        oldSecretHash: hashSwitchSecret(sessionSecret),
-        newSecretHash: hashSwitchSecret(nextSecret),
-        now,
-      });
-      if (!rotated) {
-        return res.status(401).json({ error_code: 'invalid_switch_session' });
-      }
 
       return res.json({
         success: true,
         custom_token: customToken,
         profile_id: profileId,
         role,
-        session_secret: nextSecret,
-        expires_at: new Date(nextExpiresAt).toISOString(),
+        session_secret: sessionSecret,
+        expires_at: new Date(Number(refreshed.expires_at_ms)).toISOString(),
         profile: publicProfile(profile),
       });
     } catch (error) {

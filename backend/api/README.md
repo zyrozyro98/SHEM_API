@@ -18,14 +18,16 @@ Available endpoints:
 - `GET /orders?customer_id=` - list orders for a customer
 - `POST /media/session` - exchange a valid phone/password login for a Firebase custom token
 - `POST /media/switch-sessions` - create a saved account session for an authenticated Firebase user
-- `POST /media/switch-sessions/restore` - restore an account session and rotate its secret
+- `POST /media/switch-sessions/restore` - restore an account session and refresh its idle expiry
 - `POST /media/switch-sessions/revoke` - revoke a saved account session
 - `POST /media/upload` - upload a compressed product image or product MP4 video to GitHub
 - `DELETE /accounts/:profileId` - delete a customer, merchant, or non-admin account after password reauthentication and order checks
 
 Account-switch session secrets are stored on the device using secure storage; the
-backend stores only their SHA-256 hashes in Firebase Realtime Database. Sessions
-expire after 30 days of inactivity and have a 180-day maximum lifetime.
+backend stores only their SHA-256 hashes in Firebase Realtime Database. Restoring
+a session renews its idle expiry without changing its secret, so a dropped
+response can be retried safely. Sessions expire after 30 days of inactivity and
+have a 180-day maximum lifetime.
 
 Media uploads require a GitHub fine-grained token with Contents: Read and write
 permission for `GITHUB_REPOSITORY`. The API authenticates uploads with Firebase

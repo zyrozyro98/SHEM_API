@@ -89,7 +89,12 @@ async function postMedia({
   }
 }
 
-async function postSwitchSession({ path, body, expired = false }) {
+async function postSwitchSession({
+  path,
+  body,
+  expired = false,
+  attempts = 1,
+}) {
   const sessionId = '123e4567-e89b-12d3-a456-426614174000';
   const sessionSecret = 'a'.repeat(64);
   const hashSecret = (secret) => require('crypto').createHash('sha256')
@@ -129,8 +134,9 @@ async function postSwitchSession({ path, body, expired = false }) {
       };
     },
     readSwitchSession: async () => storedSession,
-    rotateSwitchSession: async (input) => {
-      calls.rotate = input;
+    refreshSwitchSession: async (input) => {
+      calls.refresh = input;
+      calls.refreshCount = (calls.refreshCount ?? 0) + 1;
       return storedSession;
     },
     revokeSwitchSession: async (input) => {
@@ -142,20 +148,27 @@ async function postSwitchSession({ path, body, expired = false }) {
   await new Promise((resolve) => server.once('listening', resolve));
 
   try {
-    const response = await fetch(
-      `http://127.0.0.1:${server.address().port}/media${path}`,
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${validIdToken}`,
+    const responses = [];
+    for (let attempt = 0; attempt < attempts; attempt++) {
+      const response = await fetch(
+        `http://127.0.0.1:${server.address().port}/media${path}`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${validIdToken}`,
+          },
+          body: JSON.stringify(body),
         },
-        body: JSON.stringify(body),
-      },
-    );
+      );
+      responses.push({
+        status: response.status,
+        body: await response.json(),
+      });
+    }
     return {
-      status: response.status,
-      body: await response.json(),
+      ...responses[responses.length - 1],
+      responses,
       calls,
       sessionId,
       sessionSecret,
@@ -266,7 +279,7 @@ test('switch account session is bound to the authenticated profile', async () =>
   });
 });
 
-test('restoring a saved account rotates its secret and returns a custom token', async () => {
+test('restoring a saved account refreshes expiration without rotating its secret', async () => {
   const result = await postSwitchSession({
     path: '/switch-sessions/restore',
     body: {
@@ -278,15 +291,33 @@ test('restoring a saved account rotates its secret and returns a custom token', 
   assert.equal(result.status, 200);
   assert.equal(result.body.success, true);
   assert.equal(result.body.custom_token, 'custom-token-user-1');
-  assert.match(result.body.session_secret, /^[0-9a-f]{64}$/);
+  assert.equal(result.body.session_secret, result.sessionSecret);
   assert.equal(
-    result.calls.rotate.oldSecretHash,
+    result.calls.refresh.secretHash,
     result.hashSecret(result.sessionSecret),
   );
-  assert.equal(
-    result.calls.rotate.newSecretHash,
-    result.hashSecret(result.body.session_secret),
+  assert.equal(result.calls.refreshCount, 1);
+});
+
+test('restoring a saved account can be retried with the same secret', async () => {
+  const result = await postSwitchSession({
+    path: '/switch-sessions/restore',
+    body: {
+      session_id: '123e4567-e89b-12d3-a456-426614174000',
+      session_secret: 'a'.repeat(64),
+    },
+    attempts: 2,
+  });
+
+  assert.deepEqual(
+    result.responses.map((response) => response.status),
+    [200, 200],
   );
+  assert.deepEqual(
+    result.responses.map((response) => response.body.session_secret),
+    [result.sessionSecret, result.sessionSecret],
+  );
+  assert.equal(result.calls.refreshCount, 2);
 });
 
 test('restoring a saved account rejects an incorrect secret without rotating', async () => {
@@ -300,7 +331,7 @@ test('restoring a saved account rejects an incorrect secret without rotating', a
 
   assert.equal(result.status, 401);
   assert.equal(result.body.error_code, 'invalid_switch_session');
-  assert.equal(result.calls.rotate, undefined);
+  assert.equal(result.calls.refresh, undefined);
 });
 
 test('restoring an expired saved account does not issue a custom token', async () => {
@@ -315,7 +346,7 @@ test('restoring an expired saved account does not issue a custom token', async (
 
   assert.equal(result.status, 401);
   assert.equal(result.body.error_code, 'invalid_switch_session');
-  assert.equal(result.calls.rotate, undefined);
+  assert.equal(result.calls.refresh, undefined);
 });
 
 test('removing a saved account revokes its matching server session', async () => {
