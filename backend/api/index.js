@@ -11,6 +11,7 @@ const deliveryRouter = require('./routes/delivery');
 const notificationsRouter = require('./routes/notifications');
 const mediaRouter = require('./routes/media');
 const accountsRouter = require('./routes/accounts');
+const appUpdateRouter = require('./routes/app_update');
 
 const app = express();
 app.set('trust proxy', 1);
@@ -26,6 +27,7 @@ app.use('/delivery', deliveryRouter);
 app.use('/notifications', notificationsRouter);
 app.use('/media', mediaRouter);
 app.use('/accounts', accountsRouter);
+app.use('/app-update', appUpdateRouter);
 
 app.get('/', (req, res) => res.json({ ok: true, message: 'She M backend API' }));
 

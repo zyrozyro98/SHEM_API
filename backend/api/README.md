@@ -12,6 +12,7 @@ npm run dev
 
 Available endpoints:
 - `GET /` - health
+- `GET /app-update/notice` - public app-update notice fields
 - `GET /products` - list mock products
 - `GET /products/:id` - get product
 - `POST /orders` - create order (mock in-memory)
@@ -65,6 +66,10 @@ the requester's password against the current profile, blocks deletion while the
 role-specific orders are active, removes the Firebase Auth user when one is
 linked, deletes profile/session indexes, and archives a merchant's listings
 while retaining order history. Never commit the service-account JSON.
+
+The public app-update endpoint reads through Firebase Admin and returns only the
+fields needed by clients to display the configured notice. It does not expose
+internal metadata or allow writes.
 
 Phone verification codes for signup, phone-number changes, and password resets
 are sent through Wawp. Keep its credentials only in the backend environment;
