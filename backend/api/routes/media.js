@@ -309,14 +309,29 @@ function createMediaRouter(dependencies = createFirebaseDependencies()) {
     try {
       const session = await readSwitchSession(sessionId);
       const now = Date.now();
-      if (!session ||
-          Number(session.expires_at_ms) <= now ||
-          Number(session.absolute_expires_at_ms) <= now ||
-          !hashesMatch(
-            String(session.secret_hash ?? ''),
-            hashSwitchSecret(sessionSecret),
-          )) {
-        return res.status(401).json({ error_code: 'invalid_switch_session' });
+      if (!session) {
+        return res.status(401).json({
+          error_code: 'invalid_switch_session',
+          reason: 'session_not_found',
+        });
+      }
+      if (
+        Number(session.expires_at_ms) <= now ||
+        Number(session.absolute_expires_at_ms) <= now
+      ) {
+        return res.status(401).json({
+          error_code: 'invalid_switch_session',
+          reason: 'session_expired',
+        });
+      }
+      if (!hashesMatch(
+        String(session.secret_hash ?? ''),
+        hashSwitchSecret(sessionSecret),
+      )) {
+        return res.status(401).json({
+          error_code: 'invalid_switch_session',
+          reason: 'secret_mismatch',
+        });
       }
 
       const profileId = String(session.profile_id ?? '').trim();
@@ -328,7 +343,10 @@ function createMediaRouter(dependencies = createFirebaseDependencies()) {
 
       const linkedUid = String(profile.auth_uid || profile.authUid || '').trim();
       if (linkedUid && linkedUid !== uid && uid !== profileId) {
-        return res.status(401).json({ error_code: 'invalid_switch_session' });
+        return res.status(401).json({
+          error_code: 'invalid_switch_session',
+          reason: 'account_identity_mismatch',
+        });
       }
 
       const refreshed = await refreshSwitchSession({
@@ -337,7 +355,10 @@ function createMediaRouter(dependencies = createFirebaseDependencies()) {
         now,
       });
       if (!refreshed) {
-        return res.status(401).json({ error_code: 'invalid_switch_session' });
+        return res.status(401).json({
+          error_code: 'invalid_switch_session',
+          reason: 'refresh_failed',
+        });
       }
 
       const role = String(profile.role ?? 'customer').trim().toLowerCase();
