@@ -60,16 +60,19 @@ function publicProfile(profile) {
   return safeProfile;
 }
 
-function createFirebaseDependencies() {
+function createFirebaseDependencies({
+  auth = getFirebaseAuth,
+  database = getFirebaseDatabase,
+} = {}) {
   return {
     readProfile: async (phoneKey) => {
-      const snapshot = await getFirebaseDatabase()
+      const snapshot = await database()
         .ref(`profiles/${phoneKey}`).once('value');
       return snapshot.val();
     },
     resolveProfile: async (uid, claims) => {
-      const database = getFirebaseDatabase();
-      const authIndexSnapshot = await database.ref(`auth_index/${uid}`)
+      const db = database();
+      const authIndexSnapshot = await db.ref(`auth_index/${uid}`)
         .once('value');
       const authIndex = authIndexSnapshot.val() ?? {};
       const profileId = String(
@@ -81,15 +84,15 @@ function createFirebaseDependencies() {
       return {
         profileId,
         profile: await (async () => {
-          const snapshot = await database.ref(`profiles/${profileId}`)
+          const snapshot = await db.ref(`profiles/${profileId}`)
             .once('value');
           return snapshot.val();
         })(),
       };
     },
     createCustomToken: (uid, claims) =>
-      getFirebaseAuth().createCustomToken(uid, claims),
-    verifyIdToken: (token) => getFirebaseAuth().verifyIdToken(token),
+      auth().createCustomToken(uid, claims),
+    verifyIdToken: (token) => auth().verifyIdToken(token),
     linkAuthUid: async (phoneKey, uid, profile) => {
       const updates = {
         [`auth_index/${uid}`]: {
@@ -102,16 +105,16 @@ function createFirebaseDependencies() {
       if (!profile.auth_uid && !profile.authUid) {
         updates[`profiles/${phoneKey}/auth_uid`] = uid;
       }
-      await getFirebaseDatabase().ref().update(updates);
+      await database().ref().update(updates);
     },
     createSwitchSession: async ({ uid, profileId, role }) => {
-      const database = getFirebaseDatabase();
+      const db = database();
       const sessionId = uuidv4();
       const sessionSecret = crypto.randomBytes(32).toString('hex');
       const now = Date.now();
       const expiresAt = now + switchSessionIdleLifetimeMs;
       const absoluteExpiresAt = now + switchSessionAbsoluteLifetimeMs;
-      await database.ref(`auth_switch_sessions/${sessionId}`).set({
+      await db.ref(`auth_switch_sessions/${sessionId}`).set({
         uid,
         profile_id: profileId,
         role,
@@ -128,33 +131,55 @@ function createFirebaseDependencies() {
       };
     },
     readSwitchSession: async (sessionId) => {
-      const snapshot = await getFirebaseDatabase()
+      const snapshot = await database()
         .ref(`auth_switch_sessions/${sessionId}`).once('value');
       return snapshot.val();
     },
     refreshSwitchSession: async ({ sessionId, secretHash, now }) => {
-      const reference = getFirebaseDatabase()
+      const reference = database()
         .ref(`auth_switch_sessions/${sessionId}`);
-      const result = await reference.transaction((current) => {
-        if (!current ||
-            !hashesMatch(current.secret_hash ?? '', secretHash) ||
-            Number(current.expires_at_ms) <= now ||
-            Number(current.absolute_expires_at_ms) <= now) {
-          return;
-        }
-        return {
-          ...current,
-          last_used_at: new Date(now).toISOString(),
-          expires_at_ms: Math.min(
-            now + switchSessionIdleLifetimeMs,
-            Number(current.absolute_expires_at_ms),
-          ),
-        };
-      }, undefined, false);
-      return result.committed ? result.snapshot.val() : null;
+      let listener;
+      let readTimeout;
+      try {
+        const currentSession = await new Promise((resolve, reject) => {
+          listener = (snapshot) => {
+            const current = snapshot.val();
+            if (current &&
+                hashesMatch(current.secret_hash ?? '', secretHash) &&
+                Number(current.expires_at_ms) > now &&
+                Number(current.absolute_expires_at_ms) > now) {
+              resolve(current);
+            }
+          };
+          reference.on('value', listener, reject);
+          readTimeout = setTimeout(() => resolve(null), 10000);
+        });
+        if (!currentSession) return null;
+
+        const result = await reference.transaction((current) => {
+          if (!current ||
+              !hashesMatch(current.secret_hash ?? '', secretHash) ||
+              Number(current.expires_at_ms) <= now ||
+              Number(current.absolute_expires_at_ms) <= now) {
+            return;
+          }
+          return {
+            ...current,
+            last_used_at: new Date(now).toISOString(),
+            expires_at_ms: Math.min(
+              now + switchSessionIdleLifetimeMs,
+              Number(current.absolute_expires_at_ms),
+            ),
+          };
+        }, undefined, false);
+        return result.committed ? result.snapshot.val() : null;
+      } finally {
+        clearTimeout(readTimeout);
+        if (listener) reference.off('value', listener);
+      }
     },
     revokeSwitchSession: async ({ sessionId, secretHash }) => {
-      const reference = getFirebaseDatabase()
+      const reference = database()
         .ref(`auth_switch_sessions/${sessionId}`);
       const result = await reference.transaction((current) => {
         if (!current ||
@@ -531,4 +556,5 @@ function createMediaRouter(dependencies = createFirebaseDependencies()) {
 
 const router = createMediaRouter();
 router.createMediaRouter = createMediaRouter;
+router.createFirebaseDependencies = createFirebaseDependencies;
 module.exports = router;
