@@ -1,0 +1,155 @@
+سياسة الخصوصية وجمع البيانات واستخدامها
+تطبيق شيم (SHEM)
+تاريخ السريان: 20 نوفمبر 2026
+
+1. من نحن ونطاق هذه السياسة
+توضح هذه السياسة كيف تجمع منصة شيم وتستخدم وتحفظ وتشارك المعلومات عند استخدام تطبيق أو خدمات شيم، سواء كنت زائرًا أو عميلًا أو تاجرًا أو سائقًا أو مسؤولًا. تعني «المنصة» تطبيق شيم وخدماته المرتبطة. الجهة المشغلة هي إدارة منصة شيم، ويمكن التواصل معها على: shem.yemen@gmail.com.
+باستخدام الخدمة أو إنشاء حساب، فإنك تقر بأنك قرأت هذه السياسة. إذا لم توافق عليها، فلا تنشئ حسابًا ولا تستخدم الخدمات التي تتطلب بيانات شخصية. لا تلغي هذه السياسة أي حقوق إلزامية يمنحها القانون المعمول به.
+
+2. المعلومات التي نجمعها
+نجمع ما يلزم لتقديم الخدمة، وقد يشمل ذلك:
+• بيانات الحساب والهوية: الاسم، رقم الهاتف، البريد الإلكتروني عند تقديمه، معرّف الحساب، نوع الحساب وصلاحيته، بيانات التحقق، وصورة الملف الشخصي. عند استخدام تسجيل الدخول عبر Google، قد نتلقى الاسم والبريد الإلكتروني وصورة الملف المتاحة من Google.
+• بيانات المصادقة: كلمة المرور أو بيانات اعتماد المصادقة اللازمة لتسجيل الدخول. لا نطلب منك إرسال كلمة المرور إلى التاجر أو السائق. لا تضع كلمات المرور أو رموز التحقق في رسائل الدعم أو الملاحظات.
+• العناوين والموقع: المدينة والعنوان الذي تدخله، عناوين التوصيل المحفوظة، وإحداثيات الموقع إذا اخترت صراحةً استخدام زر تحديد الموقع. لا يحتاج التطبيق إلى تتبع موقعك باستمرار في الخلفية لتقديم ميزة تحديد العنوان. يمكنك إدخال العنوان يدويًا ورفض إذن الموقع.
+• الطلبات والمعاملات: المنتجات والكميات والخيارات، الأسعار والرسوم والإجمالي، عنوان التوصيل، التاجر المعني، طريقة الدفع والمحفظة المختارة، حالة الطلب وسجلاته الزمنية، وإثبات الدفع والصورة والملاحظات التي ترسلها. لا يعالج التطبيق حاليًا بيانات بطاقة مصرفية عبر بوابة دفع مدمجة؛ وقد تتضمن صورة الإيصال معلومات مالية تختار أنت إظهارها.
+• بيانات التاجر: اسم المتجر وفئته وموقعه ومنطقته وأرقام التواصل وبيانات محفظة الاستلام، المنتجات والأسعار والمخزون والصور ومقاطع الفيديو والإعلانات التي يرفعها التاجر.
+• بيانات السائق: معلومات الحساب ونوع المركبة ورقم اللوحة. قد يطلب التسجيل اختيار صورة رخصة، ويسجل التطبيق مرجع الملف المختار، لكن خطوة التسجيل الحالية لا ترفع محتوى الصورة إلى الخادم. قد تختلف الحقول المطلوبة حسب دور الحساب.
+• التواصل والدعم: الرسائل أو الأسباب والملاحظات التي تقدمها بطلب استرداد أو إلى فريق الدعم، وما يلزم لمتابعة الطلب والرد عليك.
+• التقييمات والمفضلة والإشعارات: المنتجات التي تحفظها في المفضلة، تقييماتك وتعليقاتك، وإشعارات التطبيق وحالة قراءتها.
+• بيانات الاستخدام المحفوظة على جهازك: قد يحفظ التطبيق محليًا سلة التسوق وعمليات البحث الأخيرة والجلسة والحسابات التي اخترت حفظها للتبديل بينها. تستخدم المنصة تخزينًا آمنًا متاحًا على الجهاز لهذه البيانات، وقد تبقى حتى تمسح بيانات التطبيق أو تحذفها من الجهاز.
+• بيانات تقنية واتصال: عند الاتصال بخدماتنا، قد تعالج أنظمة التشغيل والاستضافة والمصادقة بيانات تشغيلية مثل عنوان IP ووقت الطلب ومعلومات المتصفح أو الجهاز وسجلات الأخطاء اللازمة للأمان وتشخيص الأعطال. تعتمد تفاصيل هذه السجلات ومدة الاحتفاظ بها على مزودي الخدمة وإعداداتهم.
+
+3. كيف نستخدم المعلومات
+نستخدم المعلومات للأغراض التالية:
+• إنشاء الحساب والتحقق من رقم الهاتف وإدارة تسجيل الدخول وحماية الحساب.
+• عرض المنتجات والمتاجر والبحث والسلة والمفضلة والتقييمات.
+• إنشاء الطلبات وتأكيد الدفع ومراجعة الإيصالات والتجهيز والتوصيل والتواصل حول حالة الطلب.
+• تمكين التاجر من إدارة متجره وطلباته، وتمكين السائق أو مسؤول التوصيل من تنفيذ المهام المسندة إليه.
+• معالجة طلبات الاسترداد والشكاوى والدعم ومنع إساءة الاستخدام والاحتيال.
+• إرسال رموز التحقق وإشعارات الخدمة والتغييرات المهمة المتعلقة بالحساب أو الطلب.
+• حماية الأنظمة، والتحقق من العمليات، ومعالجة الأعطال، والامتثال للالتزامات القانونية.
+لا نبيع البيانات الشخصية. ولا نستخدمها لغرض مختلف جوهريًا عن الأغراض المذكورة إلا بعد إشعارك أو الحصول على الموافقة اللازمة، أو إذا أجاز القانون ذلك.
+
+4. الموقع والصور والبيانات الحساسة
+لا نطلب الوصول إلى الموقع إلا عند اختيارك ميزة تحديد الموقع. يطلب التطبيق إذن نظام التشغيل، ثم يستخدم الإحداثيات لإكمال العنوان أو موقع المتجر الذي تقرر حفظه. يمكنك سحب الإذن من إعدادات جهازك، لكن قد لا تعمل ميزة تحديد الموقع.
+يرجى عدم تضمين معلومات لا تلزم في صور الإيصالات أو الملف الشخصي أو الرسائل. ارفع فقط ما يلزم لإتمام الطلب أو التحقق. إذا أرسلت صورة إيصال، فقد تحتوي على اسم أو رقم حساب أو تفاصيل معاملة ظاهرة في الصورة.
+
+5. مشاركة المعلومات
+نشارك الحد الأدنى اللازم لأداء الخدمة على النحو الآتي:
+• التاجر الذي ينفذ طلبك: قد يرى بيانات الطلب والاسم ورقم التواصل والعنوان ومعلومات المنتجات التي تخص متجره، حتى يتمكن من قبول الطلب وتجهيزه والتواصل بشأنه.
+• السائق أو مسؤول التوصيل: قد يرى بيانات الاستلام والتسليم والتواصل والعنوان اللازمة للمهمة المسندة إليه.
+• موظفو وإدارة شيم المخولون: قد يصلون إلى معلومات الحساب والطلبات وإثباتات الدفع والدعم لأغراض تشغيل المنصة ومراجعة العمليات وحل النزاعات.
+• مزودو البنية التقنية: تستخدم الخدمة Firebase من Google للمصادقة وقاعدة البيانات والاستضافة، وخادم API مستضافًا لدى Render، ومزود WAWP لإرسال رموز التحقق عبر WhatsApp، وخدمة تخزين وسائط مرتبطة بـ GitHub. يتلقى كل مزود البيانات اللازمة لأداء وظيفته ويخضع استخدامها لشروطه وسياساته.
+• الجهات القانونية أو المختصة: قد نكشف معلومات عند وجود التزام قانوني أو طلب نظامي صحيح، أو عند الحاجة لحماية الحقوق والسلامة ومنع الاحتيال.
+لا نسمح للتاجر أو السائق باستخدام معلومات العميل للتسويق المستقل أو لأغراض غير متعلقة بالطلب.
+
+6. مكان تخزين الوسائط وإمكانية الوصول إليها
+تُرسل الصور ومقاطع الفيديو التي ترفعها بعض ميزات التطبيق إلى واجهة API، ثم تُحفظ في مستودع GitHub الذي جرى إعداد الخدمة عليه وتُعاد للتطبيق روابط من نطاق raw.githubusercontent.com. تشمل أنواع الملفات الممكنة صور المنتجات والمتاجر والملفات الشخصية والإعلانات وإثباتات الدفع. كما قد تُحفظ صورة إثبات الدفع كبيانات صورة في قاعدة البيانات عند استخدام مسار الحفظ البديل.
+تتوقف إمكانية وصول الآخرين إلى الملف على إعدادات وظهور المستودع والرابط. قد تكون الملفات متاحة علنًا إذا كان المستودع أو الرابط عامًا أو أسيء ضبط الإعدادات. لا ترفع عبر التطبيق وثائق سرية أو صورًا تحتوي على بيانات لا ترغب في كشفها. على مشغل الخدمة ضبط المستودع وصلاحياته بما يتناسب مع حساسية كل نوع ملف، والتحقق من عدم إتاحة الإيصالات أو الصور الخاصة للعامة.
+
+7. المعالجة والنقل خارج بلدك
+قد تعالج الجهات التي نستعين بها البيانات على خوادم موجودة في بلدان مختلفة عن بلد إقامتك، بما في ذلك البلدان التي توجد فيها مراكز بيانات مزودي Firebase وRender وGitHub وWAWP. وقد تسري قوانين تلك البلدان على معالجة البيانات. نتخذ خطوات مناسبة لاستخدام مزودين موثوقين، لكننا لا نتحكم في مواقع كل خوادمهم أو عملياتهم الداخلية؛ راجع سياساتهم لمزيد من المعلومات.
+
+8. مدة الاحتفاظ
+نحتفظ بالبيانات ما دامت لازمة لتشغيل الحساب والخدمة، وإتمام الطلبات، ومعالجة الاسترداد والنزاعات، وحماية المنصة، والوفاء بالالتزامات القانونية. تختلف المدة بحسب نوع البيانات والسبب، ولا توجد في التطبيق مدة موحدة محددة لكل فئة. قد تبقى نسخ احتياطية أو سجلات لدى مزودي الخدمة مدة إضافية وفق إعداداتهم.
+لا يؤدي حذف التطبيق من جهازك إلى حذف الحساب أو البيانات المخزنة على الخوادم. كما أن حذف الحساب لا يزيل تلقائيًا كل سجلات الطلبات أو إثباتات الدفع أو طلبات الاسترداد أو التقييمات أو الإشعارات أو الملفات التي سبق رفعها؛ قد نحتفظ بما يلزم للسجلات والنزاعات والالتزامات، وتظل الملفات المرفوعة خاضعة لإعدادات مخزن الوسائط.
+
+9. حماية المعلومات
+نستخدم وسائل حماية تقنية وتنظيمية ملائمة لطبيعة الخدمة، مثل المصادقة والتحكم في الوصول والاتصالات المشفرة حيثما يدعمها الاتصال، والتخزين الآمن المتاح على الجهاز لبعض بيانات الجلسة. لا يمكن ضمان أمن أي اتصال أو تخزين بنسبة مطلقة. حافظ على سرية كلمة المرور ورموز التحقق، وسجّل الخروج من الأجهزة المشتركة، وأبلغنا فورًا عن أي استخدام غير مصرح به.
+
+10. خياراتك وحقوقك
+يمكنك تحديث بيانات ملفك وعناوينك من التطبيق، وحذف سجل البحث المحلي أو بيانات التطبيق من جهازك، ورفض إذن الموقع أو سحبه من إعدادات الجهاز. ويمكنك التواصل معنا لطلب نسخة أو تصحيح أو حذف البيانات الشخصية، أو الاعتراض على معالجة معينة حيثما يجيز القانون ذلك. قد نطلب التحقق من هويتك قبل تنفيذ الطلب، وقد نحتفظ ببعض البيانات عند وجود سبب قانوني أو تشغيلي مشروع.
+يتيح التطبيق حذف حساب العميل من صفحة الحساب بعد إعادة تأكيد بيانات الدخول، بشرط عدم وجود طلبات نشطة. ويمكن طلب المساعدة في حذف الحساب عبر البريد أدناه. قد يتطلب حذف حساب التاجر عدم وجود طلبات نشطة. حذف الحساب لا يحذف تلقائيًا سجلات الطلبات أو الملفات المنشورة، وقد تُؤرشف منتجات التاجر بدل حذفها. إذا أردت حذف ملف وسائط بعينه، أرسل رابطه وبيانات الحساب إلى الدعم وسنراجع الطلب.
+
+11. الأطفال
+الخدمة ليست موجهة لمن لا يملك الأهلية القانونية لإبرام المعاملات في محل إقامته. لا نجمع عن قصد بيانات طفل دون موافقة وليه حيث تكون تلك الموافقة مطلوبة. إذا كنت وليًا وتعتقد أن طفلًا زودنا ببياناته دون موافقتك، تواصل معنا لطلب مراجعتها أو حذفها.
+
+12. خدمات وروابط أطراف أخرى
+قد يحتوي التطبيق على روابط أو خدمات خارج سيطرة شيم، مثل Google Maps أو WhatsApp أو Google Sign-In. يخضع استخدام هذه الخدمات لسياسات مزوديها، ولا نتحكم في ممارسات الخصوصية لديهم. راجع إشعاراتهم قبل استخدام الخدمة الخارجية.
+
+13. التغييرات على هذه السياسة
+قد نحدث هذه السياسة عند تغير الخدمة أو المتطلبات القانونية. ننشر النسخة المعدلة داخل التطبيق أو عبر قنواتنا المناسبة، ونحدّث تاريخ السريان أعلاه. إذا كان التغيير جوهريًا، نسعى إلى إشعارك بالطريقة المناسبة. استمرار استخدام الخدمة بعد سريان التعديل يعني اطلاعك عليه، دون الانتقاص من أي موافقة يوجبها القانون.
+
+14. التواصل
+للاستفسارات أو طلبات الوصول أو التصحيح أو الحذف أو الشكاوى المتعلقة بالخصوصية، راسل إدارة منصة شيم على:
+shem.yemen@gmail.com
+يرجى ذكر رقم الحساب أو الهاتف بالقدر اللازم لتحديد الطلب، وعدم إرسال كلمة المرور أو رمز التحقق.
+
+--- ENGLISH VERSION ---
+
+Privacy, Data Collection and Use Policy
+SHEM Application
+Effective date: November 20, 2026
+
+1. Who we are and scope
+This policy explains how the SHEM platform collects, uses, stores, and shares information when you use the SHEM application or related services as a visitor, customer, merchant, driver, or administrator. “Platform” means the SHEM application and its related services. The service operator is SHEM Platform Administration. Contact: shem.yemen@gmail.com.
+By using the service or creating an account, you acknowledge that you have read this policy. If you do not agree, do not create an account or use services that require personal information. This policy does not limit mandatory rights granted by applicable law.
+
+2. Information we collect
+We collect information needed to provide the service, which may include:
+• Account and identity information: name, phone number, email address if provided, account identifier, account type and status, verification information, and profile image. If you sign in with Google, we may receive the name, email address, and profile image made available by Google.
+• Authentication information: password or other credentials needed to sign in. We do not ask you to send your password to a merchant or driver. Do not include passwords or verification codes in support messages or notes.
+• Address and location information: city and address you enter, saved delivery addresses, and location coordinates if you expressly choose the location button. The app does not need continuous background location tracking for its address-selection feature. You may enter an address manually and decline location permission.
+• Orders and transactions: products, quantities and options, prices and fees, total, delivery address, relevant merchant, payment method and selected wallet, order status and timestamps, and any payment proof, image, or note you submit. The app does not currently process bank-card details through an integrated payment gateway; a receipt image may contain financial information you choose to show.
+• Merchant information: shop name, category, location and region, contact numbers and receiving-wallet details, products, prices, inventory, and product, promotion, or store images and videos uploaded by the merchant.
+• Driver information: account details, vehicle type, and license plate. Driver registration may ask you to select a license image and records the selected file reference, but the current registration step does not upload the image contents to the server. Required fields may vary by account role.
+• Support communications: messages, reasons, and notes submitted in refund requests or to support, and information needed to follow up and respond.
+• Ratings, favorites, and in-app notifications: products you save as favorites, your ratings and comments, and app notifications and read status.
+• Information stored on your device: the app may locally store your cart, recent searches, session, and accounts you chose to save for switching between accounts. The app uses secure storage available on the device for this information; it may remain until you clear app data or remove it from the device.
+• Technical and connection information: when you connect to our services, operating, hosting, and authentication systems may process operational data such as IP address, request time, browser or device information, and error logs needed for security and troubleshooting. Exact logs and retention periods depend on provider services and settings.
+
+3. How we use information
+We use information to:
+• Create accounts, verify phone numbers, manage sign-in, and protect accounts.
+• Display products and shops and provide search, cart, favorites, and ratings.
+• Create orders, confirm payments, review receipts, prepare and deliver orders, and communicate order updates.
+• Enable merchants to manage shops and orders, and enable assigned drivers or dispatch personnel to perform delivery tasks.
+• Process refund requests, complaints, and support inquiries and prevent misuse or fraud.
+• Send verification codes, service notifications, and important account or order updates.
+• Protect systems, verify transactions, troubleshoot issues, and comply with legal obligations.
+We do not sell personal information. We will not use it for a materially different purpose without notice or any consent required by law, unless the law permits it.
+
+4. Location, images, and sensitive information
+The app requests location access only when you choose the location-selection feature. The operating system permission is requested, then coordinates are used to complete the address or shop location that you choose to save. You can revoke permission in your device settings, although the location feature may then be unavailable.
+Please do not include unnecessary information in receipt images, profile images, or messages. Submit only what is needed for an order or verification. A receipt image may show a name, account number, or transaction details.
+
+5. Sharing information
+We share only what is reasonably needed to provide the service:
+• The merchant fulfilling your order may see order details, your name, contact number and address, and information about products from that merchant so they can accept, prepare, and discuss the order.
+• An assigned driver or dispatch operator may see pickup, delivery, contact, and address information needed for the assigned task.
+• Authorized SHEM staff and administrators may access account details, orders, payment proofs, and support records to operate the platform, review transactions, and resolve disputes.
+• Technical service providers: the service uses Firebase by Google for authentication, database, and hosting; an API server hosted by Render; WAWP to send verification codes through WhatsApp; and GitHub-linked media storage. Each provider receives information needed for its function and is subject to its own terms and policies.
+• Legal or competent authorities: we may disclose information when legally required or in response to a valid legal request, or when necessary to protect rights and safety or prevent fraud.
+We do not permit merchants or drivers to use customer information for independent marketing or purposes unrelated to an order.
+
+6. Media storage and accessibility
+Images and videos uploaded through some app features are sent to an API, then stored in the GitHub repository configured for the service; the app receives links on raw.githubusercontent.com. File types may include product, shop, profile, promotion, and payment-proof media. A payment-proof image may also be stored as image data in the database through an alternative saving path.
+Access to a file depends on repository and link visibility settings. Files may be publicly accessible if the repository or link is public or settings are misconfigured. Do not upload confidential documents or images containing information you do not want disclosed. The service operator should configure repository access appropriate to each file type and verify that receipts and private images are not publicly accessible.
+
+7. Processing and international transfers
+Our service providers may process information on servers in countries other than your country of residence, including countries where Firebase, Render, GitHub, and WAWP operate data centers. Those countries' laws may apply to processing. We take appropriate steps to use service providers, but do not control the location of every server or their internal practices; consult their policies for more information.
+
+8. Retention
+We retain information while it is needed to operate accounts and services, complete orders, handle refunds and disputes, protect the platform, and meet legal obligations. Periods vary by information type and purpose; the app does not define one fixed retention period for every category. Backups or provider logs may remain for additional periods under provider settings.
+Uninstalling the app does not delete your account or server-side information. Account deletion also does not automatically remove every order record, payment proof, refund request, rating, notification, or previously uploaded file. We may retain information needed for records, disputes, and obligations, and uploaded files remain subject to media-storage settings.
+
+9. Information security
+We use technical and organizational safeguards appropriate to the service, including authentication, access controls, encrypted connections where supported, and secure storage available on the device for certain session information. No transmission or storage method can be guaranteed completely secure. Keep your password and verification codes confidential, sign out on shared devices, and notify us promptly of unauthorized account use.
+
+10. Your choices and rights
+You can update profile information and addresses in the app, clear local search history or app data from your device, and decline or revoke location permission through device settings. You may contact us to request access to, correction or deletion of personal information, or object to certain processing where applicable law provides that right. We may verify your identity before responding and may retain some information where there is a legitimate operational or legal reason.
+The app allows customer account deletion from the profile page after re-confirming login details, provided there are no active orders. You may also contact us by email for help. Merchant accounts may require that there be no active orders. Account deletion does not automatically delete order records or published media, and merchant products may be archived rather than deleted. To request removal of a specific media file, send its link and account details to support for review.
+
+11. Children
+The service is not directed to anyone who lacks legal capacity to enter into transactions in their place of residence. We do not knowingly collect a child's information without guardian consent where such consent is required. If you are a guardian and believe a child provided information without your consent, contact us to request review or deletion.
+
+12. Third-party services and links
+The app may contain links to or use services outside SHEM's control, such as Google Maps, WhatsApp, or Google Sign-In. Those services are governed by their providers' privacy policies, and we do not control their privacy practices. Review their notices before using an external service.
+
+13. Changes to this policy
+We may update this policy when the service or legal requirements change. We will publish the revised version in the app or through appropriate channels and update the effective date above. For material changes, we will endeavor to notify you appropriately. Continued use after an update takes effect means you have been informed of it, without limiting any consent required by law.
+
+14. Contact
+For privacy questions, access, correction, deletion requests, or complaints, contact SHEM Platform Administration at:
+shem.yemen@gmail.com
+Please include the account identifier or phone number only to the extent needed to identify your request. Never send your password or verification code.

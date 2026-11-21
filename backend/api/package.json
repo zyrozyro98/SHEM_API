@@ -7,7 +7,9 @@
     "start": "node index.js",
     "dev": "nodemon index.js",
     "test": "node --test",
-    "migrate": "psql $DATABASE_URL -f ../schema.sql"
+    "migrate": "psql $DATABASE_URL -f ../schema.sql",
+    "migrate:product-search": "psql $DATABASE_URL -f ../migrations/2026112101_product_search_documents.sql",
+    "sync:product-search": "node scripts/sync_product_search_index.js"
   },
   "dependencies": {
     "@descope/node-sdk": "^2.20.0",

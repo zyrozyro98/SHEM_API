@@ -3,6 +3,7 @@ const express = require('express');
 const bodyParser = require('body-parser');
 const cors = require('cors');
 const productsRouter = require('./routes/products');
+const productSearchRouter = require('./routes/product_search');
 const ordersRouter = require('./routes/orders');
 const paymentsRouter = require('./routes/payments');
 const authRouter = require('./routes/auth');
@@ -12,6 +13,7 @@ const notificationsRouter = require('./routes/notifications');
 const mediaRouter = require('./routes/media');
 const accountsRouter = require('./routes/accounts');
 const appUpdateRouter = require('./routes/app_update');
+const promotionsRouter = require('./routes/promotions').router;
 
 const app = express();
 app.set('trust proxy', 1);
@@ -19,6 +21,7 @@ app.use(cors());
 app.use(bodyParser.json());
 
 app.use('/products', productsRouter);
+app.use('/product-search', productSearchRouter);
 app.use('/orders', ordersRouter);
 app.use('/payments', paymentsRouter);
 app.use('/auth', authRouter);
@@ -28,6 +31,7 @@ app.use('/notifications', notificationsRouter);
 app.use('/media', mediaRouter);
 app.use('/accounts', accountsRouter);
 app.use('/app-update', appUpdateRouter);
+app.use('/promotions', promotionsRouter);
 
 app.get('/', (req, res) => res.json({ ok: true, message: 'She M backend API' }));
 
