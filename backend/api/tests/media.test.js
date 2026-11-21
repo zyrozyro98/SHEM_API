@@ -93,6 +93,7 @@ async function postSwitchSession({
   path,
   body,
   expired = false,
+  refreshFails = false,
   attempts = 1,
 }) {
   const sessionId = '123e4567-e89b-12d3-a456-426614174000';
@@ -137,7 +138,7 @@ async function postSwitchSession({
     refreshSwitchSession: async (input) => {
       calls.refresh = input;
       calls.refreshCount = (calls.refreshCount ?? 0) + 1;
-      return storedSession;
+      return refreshFails ? null : storedSession;
     },
     revokeSwitchSession: async (input) => {
       calls.revoke = input;
@@ -331,6 +332,7 @@ test('restoring a saved account rejects an incorrect secret without rotating', a
 
   assert.equal(result.status, 401);
   assert.equal(result.body.error_code, 'invalid_switch_session');
+  assert.equal(result.body.reason, 'secret_mismatch');
   assert.equal(result.calls.refresh, undefined);
 });
 
@@ -346,7 +348,78 @@ test('restoring an expired saved account does not issue a custom token', async (
 
   assert.equal(result.status, 401);
   assert.equal(result.body.error_code, 'invalid_switch_session');
+  assert.equal(result.body.reason, 'session_expired');
   assert.equal(result.calls.refresh, undefined);
+});
+
+test('a failed session refresh is reported as retryable', async () => {
+  const result = await postSwitchSession({
+    path: '/switch-sessions/restore',
+    body: {
+      session_id: '123e4567-e89b-12d3-a456-426614174000',
+      session_secret: 'a'.repeat(64),
+    },
+    refreshFails: true,
+  });
+
+  assert.equal(result.status, 401);
+  assert.equal(result.body.error_code, 'invalid_switch_session');
+  assert.equal(result.body.reason, 'refresh_failed');
+});
+
+test('session refresh waits for the Firebase value before starting its transaction', async () => {
+  const sessionSecret = 'a'.repeat(64);
+  const secretHash = require('crypto').createHash('sha256')
+    .update(sessionSecret)
+    .digest('hex');
+  const now = Date.now();
+  let storedSession = {
+    uid: 'user-1',
+    profile_id: 'profile-1',
+    secret_hash: secretHash,
+    expires_at_ms: now + 60_000,
+    absolute_expires_at_ms: now + 120_000,
+  };
+  let listener;
+  const reference = {
+    on: (_event, callback) => {
+      listener = callback;
+      setImmediate(() => {
+        callback({ val: () => null });
+        setImmediate(() => callback({ val: () => storedSession }));
+      });
+    },
+    off: (_event, callback) => {
+      if (listener === callback) listener = null;
+    },
+    transaction: async (update) => {
+      assert.ok(listener);
+      const updated = update(storedSession);
+      if (updated === undefined) {
+        return { committed: false, snapshot: { val: () => storedSession } };
+      }
+      storedSession = updated;
+      return { committed: true, snapshot: { val: () => storedSession } };
+    },
+  };
+  const dependencies = require(mediaModulePath).createFirebaseDependencies({
+    database: () => ({
+      ref: (path) => {
+        assert.equal(path, 'auth_switch_sessions/session-1');
+        return reference;
+      },
+    }),
+  });
+
+  const refreshed = await dependencies.refreshSwitchSession({
+    sessionId: 'session-1',
+    secretHash,
+    now,
+  });
+
+  assert.equal(refreshed.secret_hash, secretHash);
+  assert.ok(refreshed.expires_at_ms > now + 60_000);
+  assert.equal(listener, null);
 });
 
 test('removing a saved account revokes its matching server session', async () => {

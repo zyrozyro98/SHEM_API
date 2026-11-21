@@ -10,6 +10,7 @@ function normalizeSearchText(value) {
     .replace(/ة/g, 'ه')
     .replace(/ی/g, 'ي')
     .replace(/ک/g, 'ك')
+    .replace(/(.)\1{2,}/gu, '$1')
     .replace(/[٠-٩]/g, digit => String(digit.charCodeAt(0) - 0x0660))
     .replace(/[۰-۹]/g, digit => String(digit.charCodeAt(0) - 0x06f0))
     .replace(/[^\u0600-\u06FFa-z0-9]+/g, ' ')

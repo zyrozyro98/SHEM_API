@@ -21,12 +21,8 @@ const sortExpressions = {
   newest: 'created_at desc nulls last, product_id asc',
   price_asc: 'coalesce(price, 0) asc, product_id asc',
   price_desc: 'coalesce(price, 0) desc, product_id asc',
-  category_asc: 'normalized_category asc, product_id asc',
-  category_desc: 'normalized_category desc, product_id asc',
   brand_asc: 'normalized_brand asc, product_id asc',
   brand_desc: 'normalized_brand desc, product_id asc',
-  available_first: 'available desc, product_id asc',
-  unavailable_first: 'available asc, product_id asc',
 };
 
 let cachedFacets;
@@ -68,23 +64,28 @@ function decodeCursor(value) {
   }
 }
 
-function encodeCursor(row, sort) {
+function encodeCursor(row, sort, preferredCategory) {
   const cursor = {
     sort,
     productId: row.product_id,
+    preferredCategory,
+    categoryPriority: Number(row.category_priority),
     relevance: Number(row.relevance) || 0,
     price: Number(row.price) || 0,
-    category: row.normalized_category || '',
     brand: row.normalized_brand || '',
-    available: row.available === true,
     createdAt: row.created_at ? new Date(row.created_at).toISOString() : null,
   };
   return Buffer.from(JSON.stringify(cursor)).toString('base64url');
 }
 
-function addCursorCondition(cursor, sort, params) {
+function addCursorCondition(cursor, sort, params, preferredCategory) {
   if (!cursor) return '';
-  if (cursor.sort !== sort || typeof cursor.productId !== 'string') {
+  if (
+    cursor.sort !== sort ||
+    typeof cursor.productId !== 'string' ||
+    cursor.preferredCategory !== preferredCategory ||
+    ![0, 1].includes(Number(cursor.categoryPriority))
+  ) {
     throw new Error('Invalid search cursor');
   }
 
@@ -110,23 +111,11 @@ function addCursorCondition(cursor, sort, params) {
       expression = 'coalesce(price, 0)';
       comparison = sort === 'price_asc' ? '>' : '<';
       break;
-    case 'category_asc':
-    case 'category_desc':
-      value = String(cursor.category ?? '');
-      expression = 'normalized_category';
-      comparison = sort === 'category_asc' ? '>' : '<';
-      break;
     case 'brand_asc':
     case 'brand_desc':
       value = String(cursor.brand ?? '');
       expression = 'normalized_brand';
       comparison = sort === 'brand_asc' ? '>' : '<';
-      break;
-    case 'available_first':
-    case 'unavailable_first':
-      value = cursor.available === true;
-      expression = 'available';
-      comparison = sort === 'available_first' ? '<' : '>';
       break;
     default:
       throw new Error('Unsupported search cursor');
@@ -143,19 +132,46 @@ function addCursorCondition(cursor, sort, params) {
   }
   const valueIndex = params.push(value);
   const valuePlaceholder = `$${valueIndex}`;
-  return `(${expression} ${comparison} ${valuePlaceholder} or ` +
+  const sortCondition = `(${expression} ${comparison} ${valuePlaceholder} or ` +
     `(${expression} = ${valuePlaceholder} and product_id > ${id}))`;
+  const priorityIndex = params.push(Number(cursor.categoryPriority));
+  const priority = `$${priorityIndex}`;
+  return `(category_priority > ${priority} or ` +
+    `(category_priority = ${priority} and ${sortCondition}))`;
 }
 
 function fieldScore(field, weight) {
+  const fuzzySimilarity = `greatest(
+    word_similarity(query_word, ${field}),
+    word_similarity(${field}, query_word),
+    similarity(query_word, ${field})
+  )`;
   return `greatest(
     case when ${field} = query_word then 1000
          when ${field} like query_word || '%' then 850
          when ${field} like '%' || query_word || '%' then 700
-         when char_length(query_word) >= 3 and query_word <% ${field}
-           then word_similarity(query_word, ${field}) * 600
+         when char_length(query_word) >= 3
+           and ${fuzzySimilarity} >= ${searchThreshold('query_word')}
+           then ${fuzzySimilarity} * 600
          else 0 end
   ) * ${weight}`;
+}
+
+function searchThreshold(value) {
+  return `(case
+    when char_length(${value}) <= 3 then 0.34
+    when char_length(${value}) <= 5 then 0.24
+    when char_length(${value}) <= 8 then 0.16
+    else 0.10
+  end)`;
+}
+
+function fieldSimilarity(queryWord, field) {
+  return `greatest(
+    word_similarity(${queryWord}, ${field}),
+    word_similarity(${field}, ${queryWord}),
+    similarity(${queryWord}, ${field})
+  )`;
 }
 
 const relevanceExpression = `
@@ -163,22 +179,30 @@ const relevanceExpression = `
     (case when normalized_name = $1 then 1000
           when normalized_name like $1 || '%' then 850
           when normalized_name like '%' || $1 || '%' then 700
-          when $1 <% normalized_name then word_similarity($1, normalized_name) * 600
+          when char_length($1) >= 3
+            and ${fieldSimilarity('$1', 'normalized_name')} >= ${searchThreshold('$1')}
+            then ${fieldSimilarity('$1', 'normalized_name')} * 600
           else 0 end) * 5
     + (case when normalized_brand = $1 then 1000
             when normalized_brand like $1 || '%' then 850
             when normalized_brand like '%' || $1 || '%' then 700
-            when $1 <% normalized_brand then word_similarity($1, normalized_brand) * 600
+            when char_length($1) >= 3
+              and ${fieldSimilarity('$1', 'normalized_brand')} >= ${searchThreshold('$1')}
+              then ${fieldSimilarity('$1', 'normalized_brand')} * 600
             else 0 end) * 4
     + (case when normalized_keywords = $1 then 1000
             when normalized_keywords like $1 || '%' then 850
             when normalized_keywords like '%' || $1 || '%' then 700
-            when $1 <% normalized_keywords then word_similarity($1, normalized_keywords) * 600
+            when char_length($1) >= 3
+              and ${fieldSimilarity('$1', 'normalized_keywords')} >= ${searchThreshold('$1')}
+              then ${fieldSimilarity('$1', 'normalized_keywords')} * 600
             else 0 end) * 4
     + (case when normalized_description = $1 then 1000
             when normalized_description like $1 || '%' then 850
             when normalized_description like '%' || $1 || '%' then 700
-            when $1 <% normalized_description then word_similarity($1, normalized_description) * 600
+            when char_length($1) >= 3
+              and ${fieldSimilarity('$1', 'normalized_description')} >= ${searchThreshold('$1')}
+              then ${fieldSimilarity('$1', 'normalized_description')} * 600
             else 0 end)
     + (case when normalized_document like '%' || $1 || '%' then 300 else 0 end)
     + coalesce((
@@ -194,6 +218,30 @@ const relevanceExpression = `
       from unnest($2::text[]) as query_words(query_word)
     ), 0)
   end as relevance`;
+
+const categoryPriorityExpression = `
+  case
+    when $3 <> '' and (
+      normalized_category = $3
+      or normalized_main_category = $3
+      or normalized_subcategory = $3
+    ) then 0
+    else 1
+  end as category_priority`;
+
+const fallbackScoreExpression = `
+  coalesce((
+    select sum(greatest(
+      ${fieldSimilarity('query_word', 'normalized_name')},
+      ${fieldSimilarity('query_word', 'normalized_brand')},
+      ${fieldSimilarity('query_word', 'normalized_keywords')},
+      ${fieldSimilarity('query_word', 'normalized_category')},
+      ${fieldSimilarity('query_word', 'normalized_main_category')},
+      ${fieldSimilarity('query_word', 'normalized_subcategory')},
+      ${fieldSimilarity('query_word', 'normalized_description')}
+    ))
+    from unnest($2::text[]) as query_words(query_word)
+  ), 0) as fallback_score`;
 
 async function getFacets() {
   const now = Date.now();
@@ -240,7 +288,7 @@ router.get('/', async (req, res) => {
   const queryWords = [...new Set(normalizedQuery.split(' ').filter(Boolean))];
   const category = normalizeSearchText(req.query.category ?? '');
   const brand = normalizeSearchText(req.query.brand ?? '');
-  const availability = String(req.query.availability ?? 'available');
+  const availability = String(req.query.availability ?? 'all');
   const availableFilter =
     availability === 'available'
       ? true
@@ -272,17 +320,18 @@ router.get('/', async (req, res) => {
     return res.status(400).json({ error: 'Invalid search cursor' });
   }
   try {
-    cursorCondition = addCursorCondition(cursor, sort, params);
+    cursorCondition = addCursorCondition(cursor, sort, params, category);
   } catch {
     return res.status(400).json({ error: 'Invalid search cursor' });
   }
 
   const whereCursor = cursorCondition ? `and ${cursorCondition}` : '';
   try {
-    const { rows } = await db.query(
+    let { rows } = await db.query(
       `
         with scored as (
           select documents.*,
+                 ${categoryPriorityExpression},
                  ${relevanceExpression}
           from product_search_documents documents
           where ($1 = '' or
@@ -291,27 +340,59 @@ router.get('/', async (req, res) => {
               from unnest($2::text[]) as query_words(query_word)
               where normalized_document like '%' || query_word || '%'
                  or (char_length(query_word) >= 3 and (
-                   query_word <% normalized_name
-                   or query_word <% normalized_brand
-                   or query_word <% normalized_keywords
-                   or query_word <% normalized_description
+                   ${fieldSimilarity('query_word', 'normalized_name')}
+                     >= ${searchThreshold('query_word')}
+                   or ${fieldSimilarity('query_word', 'normalized_brand')}
+                     >= ${searchThreshold('query_word')}
+                   or ${fieldSimilarity('query_word', 'normalized_keywords')}
+                     >= ${searchThreshold('query_word')}
+                   or ${fieldSimilarity('query_word', 'normalized_category')}
+                     >= ${searchThreshold('query_word')}
+                   or ${fieldSimilarity('query_word', 'normalized_main_category')}
+                     >= ${searchThreshold('query_word')}
+                   or ${fieldSimilarity('query_word', 'normalized_subcategory')}
+                     >= ${searchThreshold('query_word')}
+                   or ${fieldSimilarity('query_word', 'normalized_description')}
+                     >= ${searchThreshold('query_word')}
                  ))
             ))
-            and ($3 = '' or normalized_category = $3
-              or normalized_main_category = $3
-              or normalized_subcategory = $3)
             and ($4 = '' or normalized_brand = $4)
             and ($5::boolean is null or available = $5::boolean)
         )
         select *
         from scored
         where true ${whereCursor}
-        order by ${orderBy}
+        order by category_priority asc, ${orderBy}
         limit $6
       `,
       params,
     );
-    const hasMore = rows.length > limit;
+    let isFallback = false;
+    if (rows.length === 0 && normalizedQuery && !cursor) {
+      const fallbackParams = [...params];
+      fallbackParams[5] = limit;
+      const fallbackResult = await db.query(
+        `
+          with closest as (
+            select documents.*,
+                   ${categoryPriorityExpression},
+                   ${fallbackScoreExpression}
+            from product_search_documents documents
+            where ($4 = '' or normalized_brand = $4)
+              and ($5::boolean is null or available = $5::boolean)
+          )
+          select *
+          from closest
+          where fallback_score > 0
+          order by category_priority asc, fallback_score desc, product_id asc
+          limit $6
+        `,
+        fallbackParams,
+      );
+      rows = fallbackResult.rows;
+      isFallback = rows.length > 0;
+    }
+    const hasMore = !isFallback && rows.length > limit;
     const pageRows = hasMore ? rows.slice(0, limit) : rows;
     const facets = await getFacets();
     return res.json({
@@ -321,8 +402,9 @@ router.get('/', async (req, res) => {
         return { ...payload, id: row.product_id };
       }),
       nextCursor: hasMore
-        ? encodeCursor(pageRows[pageRows.length - 1], sort)
+        ? encodeCursor(pageRows[pageRows.length - 1], sort, category)
         : null,
+      fallback: isFallback,
       facets,
     });
   } catch (error) {
