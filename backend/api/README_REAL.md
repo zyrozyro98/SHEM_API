@@ -22,6 +22,7 @@ npm run dev
 ```
 
 Endpoints (authenticated endpoints require `Authorization: Bearer <access_token>`):
+- `GET /config/google-sign-in` - public Google Web OAuth client ID for Flutter Web
 - `GET /products` - public list of available products
 - `GET /products/:id` - product detail
 - `POST /products` - create product (merchant/admin)
@@ -58,6 +59,9 @@ products if the API is unreachable.
 
 Security notes:
 - Ensure `SUPABASE_SERVICE_ROLE_KEY` is kept secret and not exposed to clients.
+- Set `GOOGLE_WEB_CLIENT_ID` in Render to the Google OAuth 2.0 **Web client ID**.
+  The public config endpoint returns only this client ID; never put a Google
+  client secret in this variable or expose one to Flutter Web.
 - Run `schema.sql` to create tables before starting the server.
 - Configure Supabase Storage bucket policies to restrict public access; signed URLs are used here for convenience but adjust per policy.
 
