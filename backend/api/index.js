@@ -15,11 +15,13 @@ const accountsRouter = require('./routes/accounts');
 const appUpdateRouter = require('./routes/app_update');
 const promotionsRouter = require('./routes/promotions').router;
 const googleSignInConfigRouter = require('./routes/google_sign_in_config');
+const healthRouter = require('./routes/health');
+const databaseRouter = require('./routes/database');
 
 const app = express();
 app.set('trust proxy', 1);
 app.use(cors());
-app.use(bodyParser.json());
+app.use(bodyParser.json({ limit: '10mb' }));
 
 app.use('/products', productsRouter);
 app.use('/product-search', productSearchRouter);
@@ -34,6 +36,8 @@ app.use('/accounts', accountsRouter);
 app.use('/app-update', appUpdateRouter);
 app.use('/promotions', promotionsRouter);
 app.use('/config', googleSignInConfigRouter);
+app.use('/health', healthRouter);
+app.use('/database', databaseRouter);
 
 app.get('/', (req, res) => res.json({ ok: true, message: 'She M backend API' }));
 

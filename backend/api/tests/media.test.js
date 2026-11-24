@@ -19,17 +19,25 @@ async function postMedia({
   fileName = 'sample.mp4',
   idToken = validIdToken,
   legacyUploadToken,
+  nodeEnv = process.env.NODE_ENV,
+  allowLocalUploads = false,
 }) {
   const originalEnvironment = {
     GITHUB_TOKEN: process.env.GITHUB_TOKEN,
     GITHUB_REPOSITORY: process.env.GITHUB_REPOSITORY,
     MEDIA_ALLOW_LOCAL_UPLOADS: process.env.MEDIA_ALLOW_LOCAL_UPLOADS,
+    NODE_ENV: process.env.NODE_ENV,
   };
   let githubRequest;
 
   process.env.GITHUB_TOKEN = 'test-github-token';
   process.env.GITHUB_REPOSITORY = 'owner/repository';
-  process.env.MEDIA_ALLOW_LOCAL_UPLOADS = 'false';
+  process.env.MEDIA_ALLOW_LOCAL_UPLOADS = String(allowLocalUploads);
+  if (nodeEnv === undefined) {
+    delete process.env.NODE_ENV;
+  } else {
+    process.env.NODE_ENV = nodeEnv;
+  }
   require.cache[nodeFetchPath].exports = async (url, options) => {
     githubRequest = { url: String(url), options, body: JSON.parse(options.body) };
     return new Response(JSON.stringify({ content: {} }), { status: 201 });
@@ -444,6 +452,22 @@ test('media upload rejects requests without a Firebase ID token', async () => {
   Buffer.from('ftyp').copy(bytes, 4);
 
   const result = await postMedia({ bytes, idToken: null });
+
+  assert.equal(result.status, 401);
+  assert.equal(result.body.error_code, 'authentication_required');
+  assert.equal(result.githubRequest, undefined);
+});
+
+test('production media uploads cannot bypass Firebase authentication', async () => {
+  const bytes = Buffer.alloc(32);
+  Buffer.from('ftyp').copy(bytes, 4);
+
+  const result = await postMedia({
+    bytes,
+    idToken: null,
+    nodeEnv: 'production',
+    allowLocalUploads: true,
+  });
 
   assert.equal(result.status, 401);
   assert.equal(result.body.error_code, 'authentication_required');

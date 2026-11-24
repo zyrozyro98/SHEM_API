@@ -449,7 +449,12 @@ function createMediaRouter(dependencies = createFirebaseDependencies()) {
   });
 
   async function requireFirebaseUser(req, res, next) {
-    if (process.env.MEDIA_ALLOW_LOCAL_UPLOADS === 'true') return next();
+    if (
+      process.env.NODE_ENV !== 'production' &&
+      process.env.MEDIA_ALLOW_LOCAL_UPLOADS === 'true'
+    ) {
+      return next();
+    }
 
     const authorization = req.headers.authorization ?? '';
     const match = /^Bearer\s+(.+)$/i.exec(authorization);
