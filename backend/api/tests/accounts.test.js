@@ -57,6 +57,43 @@ async function requestDeletion(
   }
 }
 
+async function submitPublicDeletionRequests(payloads, submit) {
+  const dependencies = {
+    read: async () => {
+      throw new Error('Public deletion requests must not look up accounts');
+    },
+    update: async () => {},
+    deleteAuthUser: async () => {},
+    submitDeletionRequest: submit,
+  };
+  const app = express();
+  app.use(express.json());
+  app.use('/accounts', accountsRouter.createAccountsRouter(dependencies));
+  const server = app.listen(0);
+  await new Promise((resolve) => server.once('listening', resolve));
+
+  try {
+    const responses = [];
+    for (const payload of payloads) {
+      const response = await fetch(
+        `http://127.0.0.1:${server.address().port}/accounts/deletion-requests`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        },
+      );
+      responses.push({
+        status: response.status,
+        body: await response.json(),
+      });
+    }
+    return responses;
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+}
+
 function pathValue(root, path) {
   return path.split('/').reduce((value, key) => value?.[key], root);
 }
@@ -173,6 +210,37 @@ test('merchant deletion is blocked by a non-rejected item in a new order', async
   assert.deepEqual(result.authDeletions, []);
 });
 
+test('driver can delete their own account when no delivery is active', async () => {
+  const data = {
+    profiles: {
+      driver: {
+        id: 'driver',
+        phone: '771111111',
+        role: 'driver',
+        password_hash: hashPassword('correct horse'),
+        auth_uid: 'driver-auth-uid',
+      },
+    },
+    auth_index: {
+      'driver-auth-uid': { phone: '771111111' },
+    },
+    orders: {
+      delivered: { driver_id: 'driver', status: 'delivered' },
+    },
+  };
+
+  const result = await requestDeletion(
+    data,
+    'driver',
+    '771111111',
+    'correct horse',
+  );
+
+  assert.equal(result.status, 200);
+  assert.equal(data.profiles.driver, undefined);
+  assert.deepEqual(result.authDeletions, ['driver-auth-uid']);
+});
+
 test('admin can delete an eligible merchant and archived listings retain history', async () => {
   const data = {
     profiles: profiles('admin', 'merchant'),
@@ -244,4 +312,112 @@ test('database changes are restored when Firebase Auth deletion fails', async ()
   });
   assert.equal(data.products.product1.available, true);
   assert.equal(data.products.product1.is_archived, undefined);
+});
+
+test('public deletion request is stored for identity verification', async () => {
+  const submitted = [];
+  const [result] = await submitPublicDeletionRequests(
+    [{
+      phone: '+967771234567',
+      account_type: 'driver',
+      reason: 'لم أعد أستخدم التطبيق',
+    }],
+    async (request) => {
+      submitted.push(request);
+      return 'request-1';
+    },
+  );
+
+  assert.equal(result.status, 202);
+  assert.deepEqual(result.body, {
+    success: true,
+    request_id: 'request-1',
+  });
+  assert.equal(submitted.length, 1);
+  assert.equal(submitted[0].phone, '+967771234567');
+  assert.equal(submitted[0].account_type, 'driver');
+  assert.equal(submitted[0].reason, 'لم أعد أستخدم التطبيق');
+  assert.equal(submitted[0].status, 'pending_verification');
+  assert.equal(submitted[0].identity_verified, false);
+  assert.equal(submitted[0].source, 'web');
+});
+
+test('public deletion request validates phone, role and honeypot', async () => {
+  let submissions = 0;
+  const results = await submitPublicDeletionRequests(
+    [
+      { phone: '0771234567', account_type: 'customer' },
+      { phone: '+967771234567', account_type: 'admin' },
+      {
+        phone: '+967771234567',
+        account_type: 'merchant',
+        website: 'spam.example',
+      },
+    ],
+    async () => {
+      submissions++;
+      return 'unused';
+    },
+  );
+
+  assert.deepEqual(results.map((result) => result.status), [400, 400, 400]);
+  assert.equal(submissions, 0);
+});
+
+test('public deletion requests are rate limited per phone and IP', async () => {
+  let submissions = 0;
+  const results = await submitPublicDeletionRequests(
+    Array.from({ length: 4 }, () => ({
+      phone: '+967771234567',
+      account_type: 'customer',
+    })),
+    async () => `request-${++submissions}`,
+  );
+
+  assert.deepEqual(results.map((result) => result.status), [
+    202,
+    202,
+    202,
+    429,
+  ]);
+  assert.equal(submissions, 3);
+});
+
+test('driver cannot be deleted while an assigned delivery is active', async () => {
+  const data = {
+    profiles: {
+      requester: {
+        id: 'requester',
+        phone: '771111111',
+        role: 'admin',
+        password_hash: hashPassword('correct horse'),
+      },
+      driver: {
+        id: 'driver',
+        phone: '772222222',
+        role: 'driver',
+        password_hash: hashPassword('driver password'),
+        auth_uid: 'driver-auth-uid',
+      },
+    },
+    orders: {
+      order1: {
+        driver_id: 'driver',
+        driver_status: 'picked_up',
+        status: 'shipped',
+      },
+    },
+  };
+
+  const result = await requestDeletion(
+    data,
+    'driver',
+    '771111111',
+    'correct horse',
+  );
+
+  assert.equal(result.status, 409);
+  assert.equal(result.body.error_code, 'driver_active_orders');
+  assert.ok(data.profiles.driver);
+  assert.deepEqual(result.authDeletions, []);
 });

@@ -1,3 +1,4 @@
+const crypto = require('crypto');
 const express = require('express');
 const {
   getFirebaseAuth,
@@ -10,6 +11,12 @@ const terminalMerchantStatuses = new Set([
   'delivered',
   'cancelled',
   'rejected',
+]);
+const terminalDriverStatuses = new Set([
+  'delivered',
+  'cancelled',
+  'rejected',
+  'completed',
 ]);
 
 function normalizeRole(profile) {
@@ -85,6 +92,23 @@ function hasActiveMerchantOrder(orders, merchantIds, owners) {
   });
 }
 
+function hasActiveDriverOrder(orders, driverIds, driverPhone) {
+  return Object.values(toObject(orders)).some((value) => {
+    const order = toObject(value);
+    const orderDriverId = String(
+      order.driver_id ?? order.driverId ?? '',
+    ).trim();
+    const matchesDriver = driverIds.has(orderDriverId) ||
+      (driverPhone !== '' &&
+        normalizePhone(order.driver_phone ?? order.driverPhone) === driverPhone);
+    if (!matchesDriver) return false;
+    const status = String(
+      order.driver_status ?? order.status ?? 'new',
+    ).trim().toLowerCase();
+    return !terminalDriverStatuses.has(status);
+  });
+}
+
 function createFirebaseDependencies() {
   return {
     read: async (path) => {
@@ -93,13 +117,97 @@ function createFirebaseDependencies() {
     },
     update: (updates) => getFirebaseDatabase().ref().update(updates),
     deleteAuthUser: (uid) => getFirebaseAuth().deleteUser(uid),
+    submitDeletionRequest: async (request) => {
+      const requestRef = getFirebaseDatabase()
+        .ref('account_deletion_requests')
+        .push();
+      await requestRef.set({ ...request, id: requestRef.key });
+      return requestRef.key;
+    },
   };
 }
 
 function createAccountsRouter(dependencies = createFirebaseDependencies()) {
   const router = express.Router();
-  const { read, update, deleteAuthUser } = dependencies;
+  const { read, update, deleteAuthUser, submitDeletionRequest } = dependencies;
   const failedReauthentication = new Map();
+  const deletionRequestAttempts = new Map();
+
+  router.post('/deletion-requests', async (req, res) => {
+    const rawPhone = req.body?.phone;
+    const phoneDigits = normalizePhone(rawPhone);
+    const accountType = String(req.body?.account_type ?? '').trim();
+    const reason = typeof req.body?.reason === 'string'
+      ? req.body.reason.trim()
+      : '';
+    const honeypot = req.body?.website;
+
+    if (
+      typeof rawPhone !== 'string' ||
+      !/^[1-9]\d{7,14}$/.test(phoneDigits) ||
+      !['customer', 'merchant', 'driver'].includes(accountType) ||
+      reason.length > 1000 ||
+      (honeypot != null &&
+        (typeof honeypot !== 'string' || honeypot.trim().length > 0))
+    ) {
+      return res.status(400).json({ error_code: 'invalid_deletion_request' });
+    }
+
+    const now = Date.now();
+    const windowMs = 60 * 60 * 1000;
+    const attemptKey = crypto
+      .createHash('sha256')
+      .update(`${req.ip}:${phoneDigits}`)
+      .digest('hex');
+    const previousAttempts = deletionRequestAttempts.get(attemptKey);
+    if (previousAttempts && now - previousAttempts.startedAt < windowMs &&
+        previousAttempts.count >= 3) {
+      return res.status(429).json({ error_code: 'too_many_requests' });
+    }
+    if (deletionRequestAttempts.size > 5000) {
+      for (const [key, attempts] of deletionRequestAttempts) {
+        if (now - attempts.startedAt >= windowMs) {
+          deletionRequestAttempts.delete(key);
+        }
+      }
+    }
+    const attempts = previousAttempts && now - previousAttempts.startedAt < windowMs
+      ? previousAttempts
+      : { startedAt: now, count: 0 };
+    deletionRequestAttempts.set(attemptKey, {
+      startedAt: attempts.startedAt,
+      count: attempts.count + 1,
+    });
+
+    try {
+      const createdAt = new Date(now).toISOString();
+      const requestId = await submitDeletionRequest({
+        phone: `+${phoneDigits}`,
+        account_type: accountType,
+        reason,
+        status: 'pending_verification',
+        identity_verified: false,
+        source: 'web',
+        created_at: createdAt,
+        updated_at: createdAt,
+      });
+      if (!requestId) {
+        throw new Error('Deletion request storage returned no request ID');
+      }
+      return res.status(202).json({
+        success: true,
+        request_id: requestId,
+      });
+    } catch (error) {
+      console.error(
+        'Account deletion request could not be stored:',
+        error?.code ?? error?.name ?? 'unknown',
+      );
+      return res.status(503).json({
+        error_code: 'deletion_requests_unavailable',
+      });
+    }
+  });
 
   router.delete('/:profileId', async (req, res) => {
     const profileId = String(req.params.profileId ?? '').trim();
@@ -156,7 +264,7 @@ function createAccountsRouter(dependencies = createFirebaseDependencies()) {
       const isSelf = requesterEntry[0] === targetKey;
 
       if (!isAdmin && (!isSelf ||
-          !['customer', 'merchant'].includes(requesterRole))) {
+          !['customer', 'merchant', 'driver'].includes(requesterRole))) {
         return res.status(403).json({ error_code: 'forbidden' });
       }
       if (targetRole === 'admin') {
@@ -194,6 +302,20 @@ function createAccountsRouter(dependencies = createFirebaseDependencies()) {
         if (hasActiveMerchantOrder(orders, merchantIds, productOwners(products))) {
           return res.status(409).json({
             error_code: 'merchant_active_orders',
+          });
+        }
+      } else if (targetRole === 'driver') {
+        const driverIds = new Set([
+          targetKey,
+          String(target.id ?? ''),
+        ].filter(Boolean));
+        if (hasActiveDriverOrder(
+          orders,
+          driverIds,
+          normalizePhone(target.phone),
+        )) {
+          return res.status(409).json({
+            error_code: 'driver_active_orders',
           });
         }
       }
