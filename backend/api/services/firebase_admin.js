@@ -1,6 +1,7 @@
 const { cert, getApp, getApps, initializeApp } = require('firebase-admin/app');
 const { getAuth } = require('firebase-admin/auth');
 const { getDatabase } = require('firebase-admin/database');
+const { getStorage } = require('firebase-admin/storage');
 
 let firebaseApp;
 
@@ -33,6 +34,9 @@ function getFirebaseApp() {
   firebaseApp = initializeApp({
     credential: cert(serviceAccount),
     databaseURL,
+    storageBucket:
+      process.env.FIREBASE_STORAGE_BUCKET ||
+      `${serviceAccount.project_id}.firebasestorage.app`,
   });
   return firebaseApp;
 }
@@ -45,4 +49,13 @@ function getFirebaseAuth() {
   return getAuth(getFirebaseApp());
 }
 
-module.exports = { getFirebaseApp, getFirebaseAuth, getFirebaseDatabase };
+function getFirebaseStorage() {
+  return getStorage(getFirebaseApp());
+}
+
+module.exports = {
+  getFirebaseApp,
+  getFirebaseAuth,
+  getFirebaseDatabase,
+  getFirebaseStorage,
+};

@@ -760,6 +760,15 @@ function canWrite(path, caller, current, next) {
 }
 
 function isStoredReceiptUrl(value) {
+  const privateMatch = /^gs:\/\/([^/]+)\/(.+)$/.exec(value);
+  if (privateMatch) {
+    const bucket =
+      String(process.env.FIREBASE_STORAGE_BUCKET ||
+        `${process.env.GCLOUD_PROJECT || 'she-m-8d0f5'}.firebasestorage.app`).trim();
+    return privateMatch[1] === bucket &&
+      /^private\/receipts\/[^/]+\/[^/]+$/.test(privateMatch[2]);
+  }
+
   const repository = String(process.env.GITHUB_REPOSITORY ?? '').trim();
   const repositoryParts = repository.split('/');
   if (repositoryParts.length !== 2 || repositoryParts.some((part) => !part)) {
@@ -2347,6 +2356,11 @@ function createDatabaseRouter({
     const imageUrl = String(req.body?.image_url ?? '').trim();
     if (!isStoredReceiptUrl(imageUrl)) {
       return res.status(400).json({ error_code: 'invalid_receipt_image' });
+    }
+    const privateReceiptMatch =
+      /^gs:\/\/[^/]+\/private\/receipts\/([^/]+)\//.exec(imageUrl);
+    if (privateReceiptMatch && privateReceiptMatch[1] !== caller.uid) {
+      return res.status(403).json({ error_code: 'receipt_not_owned' });
     }
     const note = String(req.body?.note ?? '').trim();
     if (note.length > 500) {

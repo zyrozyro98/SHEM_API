@@ -25,6 +25,7 @@ async function postMedia({
   const originalEnvironment = {
     GITHUB_TOKEN: process.env.GITHUB_TOKEN,
     GITHUB_REPOSITORY: process.env.GITHUB_REPOSITORY,
+    FIREBASE_STORAGE_BUCKET: process.env.FIREBASE_STORAGE_BUCKET,
     MEDIA_ALLOW_LOCAL_UPLOADS: process.env.MEDIA_ALLOW_LOCAL_UPLOADS,
     NODE_ENV: process.env.NODE_ENV,
   };
@@ -32,6 +33,7 @@ async function postMedia({
 
   process.env.GITHUB_TOKEN = 'test-github-token';
   process.env.GITHUB_REPOSITORY = 'owner/repository';
+  process.env.FIREBASE_STORAGE_BUCKET = 'test-private-media';
   process.env.MEDIA_ALLOW_LOCAL_UPLOADS = String(allowLocalUploads);
   if (nodeEnv === undefined) {
     delete process.env.NODE_ENV;
@@ -56,6 +58,15 @@ async function postMedia({
       if (token !== validIdToken) throw new Error('Invalid token');
       return { uid: 'user-1' };
     },
+    storage: () => ({
+      app: { options: { projectId: 'test-project' } },
+      bucket: () => ({
+        file: () => ({
+          save: async () => {},
+          getSignedUrl: async () => ['https://signed.example.test/media'],
+        }),
+      }),
+    }),
     linkAuthUid: async () => {},
   }));
   const server = app.listen(0);
@@ -526,7 +537,7 @@ test('media upload stores product images in the products directory', async () =>
   assert.match(result.body.url, /raw\.githubusercontent\.com.+\.jpg$/);
 });
 
-test('media upload stores payment proof images in the receipts directory', async () => {
+test('media upload stores payment proof images in private storage', async () => {
   const result = await postMedia({
     bytes: Buffer.from('payment proof'),
     contentType: 'image/jpeg',
@@ -535,8 +546,8 @@ test('media upload stores payment proof images in the receipts directory', async
   });
 
   assert.equal(result.status, 201);
-  assert.match(result.githubRequest.url, /assets\/receipts\/.+\.jpg$/);
-  assert.match(result.body.url, /raw\.githubusercontent\.com.+\.jpg$/);
+  assert.equal(result.githubRequest, undefined);
+  assert.match(result.body.url, /^gs:\/\/test-private-media\/private\/receipts\/user-1\/.+\.jpg$/);
 });
 
 test('media upload stores promotion images in the promotions directory', async () => {
@@ -562,7 +573,7 @@ test('media upload rejects videos for promotion images', async () => {
   assert.equal(result.githubRequest, undefined);
 });
 
-test('media upload stores wallet logos in the wallets directory', async () => {
+test('media upload stores wallet logos in private storage', async () => {
   const result = await postMedia({
     bytes: Buffer.from('wallet logo'),
     contentType: 'image/jpeg',
@@ -571,6 +582,6 @@ test('media upload stores wallet logos in the wallets directory', async () => {
   });
 
   assert.equal(result.status, 201);
-  assert.match(result.githubRequest.url, /assets\/wallets\/.+\.jpg$/);
-  assert.match(result.body.url, /raw\.githubusercontent\.com.+\.jpg$/);
+  assert.equal(result.githubRequest, undefined);
+  assert.match(result.body.url, /^gs:\/\/test-private-media\/private\/wallets\/user-1\/.+\.jpg$/);
 });

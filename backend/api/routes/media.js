@@ -6,6 +6,7 @@ const { v4: uuidv4 } = require('uuid');
 const {
   getFirebaseAuth,
   getFirebaseDatabase,
+  getFirebaseStorage,
 } = require('../services/firebase_admin');
 const {
   normalizeYemenPhoneKey,
@@ -63,8 +64,11 @@ function publicProfile(profile) {
 function createFirebaseDependencies({
   auth = getFirebaseAuth,
   database = getFirebaseDatabase,
+  storage = getFirebaseStorage,
 } = {}) {
   return {
+    storage,
+    database,
     readProfile: async (phoneKey) => {
       const snapshot = await database()
         .ref(`profiles/${phoneKey}`).once('value');
@@ -201,6 +205,8 @@ function createMediaRouter(dependencies = createFirebaseDependencies()) {
     createCustomToken,
     verifyIdToken,
     resolveProfile,
+    storage: storageProvider = getFirebaseStorage,
+    database: databaseProvider = getFirebaseDatabase,
     linkAuthUid = async () => {},
     createSwitchSession,
     readSwitchSession,
@@ -483,10 +489,67 @@ function createMediaRouter(dependencies = createFirebaseDependencies()) {
     });
   }
 
-  router.post('/upload', requireFirebaseUser, parseUpload, async (req, res) => {
-    if (!process.env.GITHUB_TOKEN || !process.env.GITHUB_REPOSITORY) {
-      return res.status(503).json({ error: 'GitHub image storage is not configured' });
+  router.get('/signed-url', requireFirebaseUser, async (req, res) => {
+    const rawObjectKey = String(req.query.object || '').trim();
+    let bucketName;
+    let objectPath;
+    try {
+      const match = /^gs:\/\/([^/]+)\/(.+)$/.exec(rawObjectKey);
+      if (!match) return res.status(400).json({ error_code: 'invalid_object_key' });
+      bucketName = match[1];
+      objectPath = match[2];
+    } catch (_) {
+      return res.status(400).json({ error_code: 'invalid_object_key' });
     }
+
+    const configuredBucket =
+      process.env.FIREBASE_STORAGE_BUCKET ||
+      `${process.env.GCLOUD_PROJECT || storageProvider().app.options.projectId}.firebasestorage.app`;
+    if (bucketName !== configuredBucket) {
+      return res.status(403).json({ error_code: 'object_not_authorized' });
+    }
+
+    const uid = req.firebaseUser?.uid;
+    const match = /^private\/(profiles|receipts|wallets)\/([^/]+)\//.exec(objectPath);
+    if (!uid || !match) {
+      return res.status(403).json({ error_code: 'object_not_authorized' });
+    }
+
+    const ownerUid = match[2];
+    let isAdmin = false;
+    try {
+      const db = databaseProvider();
+      const authIndexSnapshot = await db.ref(`auth_index/${uid}`).once('value');
+      const authProfileId =
+        authIndexSnapshot.val()?.profile_id || req.firebaseUser.profile_id || uid;
+      const profileSnapshot = await db.ref(`profiles/${authProfileId}`).once('value');
+      isAdmin =
+        String(profileSnapshot.val()?.role || '').trim().toLowerCase() === 'admin';
+    } catch (_) {
+      isAdmin = false;
+    }
+    if (!isAdmin && ownerUid !== uid) {
+      return res.status(403).json({ error_code: 'object_not_authorized' });
+    }
+
+    try {
+      const [signedUrl] = await storageProvider()
+        .bucket(configuredBucket)
+        .file(objectPath)
+        .getSignedUrl({
+          version: 'v4',
+          action: 'read',
+          expires: Date.now() + 15 * 60 * 1000,
+          responseType: 'application/octet-stream',
+        });
+      return res.json({ url: signedUrl, expires_in: 900 });
+    } catch (error) {
+      console.error('Private media signed URL error', error);
+      return res.status(502).json({ error_code: 'signed_url_failed' });
+    }
+  });
+
+  router.post('/upload', requireFirebaseUser, parseUpload, async (req, res) => {
     if (!req.file) {
       return res.status(400).json({ error: 'A supported media file is required' });
     }
@@ -514,6 +577,35 @@ function createMediaRouter(dependencies = createFirebaseDependencies()) {
       const extension = isVideo
         ? 'mp4'
         : req.file.mimetype.split('/')[1].replace('jpeg', 'jpg');
+
+      if (['profiles', 'receipts', 'wallets'].includes(mediaType)) {
+        const storage = storageProvider();
+        const bucketName =
+          process.env.FIREBASE_STORAGE_BUCKET ||
+          `${process.env.GCLOUD_PROJECT || storage.app.options.projectId}.firebasestorage.app`;
+        const bucket = storage.bucket(bucketName);
+        const uid = req.firebaseUser?.uid;
+        if (!uid) {
+          return res.status(401).json({ error_code: 'invalid_authentication' });
+        }
+        const path = `private/${mediaType}/${uid}/${uuidv4()}.${extension}`;
+        await bucket.file(path).save(req.file.buffer, {
+          resumable: false,
+          metadata: {
+            contentType: req.file.mimetype,
+            metadata: {
+              owner_uid: uid,
+              media_type: mediaType,
+            },
+          },
+        });
+        const objectKey = `gs://${bucketName}/${path}`;
+        return res.status(201).json({ url: objectKey, object_key: objectKey });
+      }
+
+      if (!process.env.GITHUB_TOKEN || !process.env.GITHUB_REPOSITORY) {
+        return res.status(503).json({ error: 'GitHub image storage is not configured' });
+      }
       const directory = mediaDirectories[mediaType]
         .replace(/^\/+|\/+$/g, '');
       const path = `${directory}/${uuidv4()}.${extension}`;
