@@ -495,6 +495,70 @@ test('drivers can read only their own preferences', async () => {
   }
 });
 
+test('notification recipients can only update their own read status', async () => {
+  const { server, store } = await startDatabaseApp({
+    initial: {
+      profiles: {
+        'customer-1': {
+          id: 'customer-1',
+          role: 'customer',
+          auth_uid: 'uid-customer',
+        },
+      },
+      auth_index: {
+        'uid-customer': { profile_id: 'customer-1', role: 'customer' },
+      },
+      notifications: {
+        'notification-1': {
+          profile_id: 'customer-1',
+          recipient_role: 'customer',
+          title: 'Order update',
+          is_read: false,
+        },
+        'notification-2': {
+          profile_id: 'customer-2',
+          recipient_role: 'customer',
+          title: 'Private update',
+          is_read: false,
+        },
+      },
+    },
+    users: { 'customer-token': customer },
+  });
+  try {
+    const markAsRead = await request(server, 'notifications/notification-1', {
+      method: 'PATCH',
+      token: 'customer-token',
+      body: { is_read: true },
+    });
+    const updateOtherNotification = await request(
+      server,
+      'notifications/notification-2',
+      {
+        method: 'PATCH',
+        token: 'customer-token',
+        body: { is_read: true },
+      },
+    );
+    const editNotification = await request(
+      server,
+      'notifications/notification-1',
+      {
+        method: 'PATCH',
+        token: 'customer-token',
+        body: { title: 'Modified by customer' },
+      },
+    );
+
+    assert.equal(markAsRead.status, 200);
+    assert.equal(store.values.notifications['notification-1'].is_read, true);
+    assert.equal(updateOtherNotification.status, 403);
+    assert.equal(editNotification.status, 403);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
 test('public product reads hide unpublished products and private fields', async () => {
   const { server } = await startDatabaseApp({
     initial: {

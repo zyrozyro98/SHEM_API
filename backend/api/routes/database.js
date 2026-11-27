@@ -770,7 +770,10 @@ function canWrite(path, caller, current, next) {
         '',
       ) === caller.profileId &&
         (!current ||
-          [...changedKeys(current, next)].every((key) => key === 'read'));
+          [...changedKeys(current, next)].every((key) =>
+            (key === 'read' || key === 'is_read') &&
+            typeof next?.[key] === 'boolean'
+          ));
     case 'driver_preferences':
       return caller.role === 'driver' && parts[1] === caller.profileId;
     case 'merchant_withdrawal_requests':
