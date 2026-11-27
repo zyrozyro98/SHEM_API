@@ -31,12 +31,21 @@ function getFirebaseApp() {
     throw error;
   }
 
+  const projectId =
+    process.env.GCLOUD_PROJECT?.trim() || serviceAccount.project_id?.trim();
+  if (!projectId) {
+    const error = new Error('Firebase project ID is not configured');
+    error.code = 'FIREBASE_ADMIN_NOT_CONFIGURED';
+    throw error;
+  }
+
   firebaseApp = initializeApp({
     credential: cert(serviceAccount),
+    projectId,
     databaseURL,
     storageBucket:
-      process.env.FIREBASE_STORAGE_BUCKET ||
-      `${serviceAccount.project_id}.firebasestorage.app`,
+      process.env.FIREBASE_STORAGE_BUCKET?.trim() ||
+      `${projectId}.firebasestorage.app`,
   });
   return firebaseApp;
 }

@@ -479,6 +479,31 @@ test('public product reads hide unpublished products and private fields', async 
   }
 });
 
+test('public product rating reads expose only an aggregate summary', async () => {
+  const { server } = await startDatabaseApp({
+    initial: {
+      product_ratings: {
+        p1: {
+          customer1: {
+            rating: 5,
+            comment: 'Great',
+            customer_id: 'customer1',
+          },
+          customer2: { rating: '4', customer_id: 'customer2' },
+          invalid: { rating: 8, customer_id: 'customer3' },
+        },
+      },
+    },
+  });
+  try {
+    const result = await request(server, 'product_ratings/p1');
+
+    assert.deepEqual(result.body, { average: 4.5, count: 2 });
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
 test('customer can update their profile but cannot change protected identity fields', async () => {
   const { server, store } = await startDatabaseApp({
     initial: {

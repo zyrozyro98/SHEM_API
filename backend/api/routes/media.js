@@ -38,6 +38,22 @@ const upload = multer({
 const switchSessionIdleLifetimeMs = 30 * 24 * 60 * 60 * 1000;
 const switchSessionAbsoluteLifetimeMs = 180 * 24 * 60 * 60 * 1000;
 
+function getStorageBucketName(storage) {
+  const configuredBucket = process.env.FIREBASE_STORAGE_BUCKET?.trim();
+  if (configuredBucket) return configuredBucket;
+
+  const projectId =
+    process.env.GCLOUD_PROJECT?.trim() || storage.app.options.projectId?.trim();
+  if (projectId) return `${projectId}.firebasestorage.app`;
+
+  const appBucket = storage.app.options.storageBucket?.trim();
+  if (appBucket && appBucket !== 'undefined.firebasestorage.app') {
+    return appBucket;
+  }
+
+  throw new Error('Firebase Storage bucket is not configured');
+}
+
 function hashSwitchSecret(secret) {
   return crypto.createHash('sha256').update(secret).digest('hex');
 }
@@ -502,9 +518,8 @@ function createMediaRouter(dependencies = createFirebaseDependencies()) {
       return res.status(400).json({ error_code: 'invalid_object_key' });
     }
 
-    const configuredBucket =
-      process.env.FIREBASE_STORAGE_BUCKET ||
-      `${process.env.GCLOUD_PROJECT || storageProvider().app.options.projectId}.firebasestorage.app`;
+    const storage = storageProvider();
+    const configuredBucket = getStorageBucketName(storage);
     if (bucketName !== configuredBucket) {
       return res.status(403).json({ error_code: 'object_not_authorized' });
     }
@@ -533,7 +548,7 @@ function createMediaRouter(dependencies = createFirebaseDependencies()) {
     }
 
     try {
-      const [signedUrl] = await storageProvider()
+      const [signedUrl] = await storage
         .bucket(configuredBucket)
         .file(objectPath)
         .getSignedUrl({
@@ -580,9 +595,7 @@ function createMediaRouter(dependencies = createFirebaseDependencies()) {
 
       if (['profiles', 'receipts', 'wallets'].includes(mediaType)) {
         const storage = storageProvider();
-        const bucketName =
-          process.env.FIREBASE_STORAGE_BUCKET ||
-          `${process.env.GCLOUD_PROJECT || storage.app.options.projectId}.firebasestorage.app`;
+        const bucketName = getStorageBucketName(storage);
         const bucket = storage.bucket(bucketName);
         const uid = req.firebaseUser?.uid;
         if (!uid) {

@@ -21,19 +21,28 @@ async function postMedia({
   legacyUploadToken,
   nodeEnv = process.env.NODE_ENV,
   allowLocalUploads = false,
+  firebaseStorageBucket = 'test-private-media',
+  gcloudProject,
 }) {
   const originalEnvironment = {
     GITHUB_TOKEN: process.env.GITHUB_TOKEN,
     GITHUB_REPOSITORY: process.env.GITHUB_REPOSITORY,
+    GCLOUD_PROJECT: process.env.GCLOUD_PROJECT,
     FIREBASE_STORAGE_BUCKET: process.env.FIREBASE_STORAGE_BUCKET,
     MEDIA_ALLOW_LOCAL_UPLOADS: process.env.MEDIA_ALLOW_LOCAL_UPLOADS,
     NODE_ENV: process.env.NODE_ENV,
   };
   let githubRequest;
+  const storageBucketNames = [];
 
   process.env.GITHUB_TOKEN = 'test-github-token';
   process.env.GITHUB_REPOSITORY = 'owner/repository';
-  process.env.FIREBASE_STORAGE_BUCKET = 'test-private-media';
+  process.env.FIREBASE_STORAGE_BUCKET = firebaseStorageBucket;
+  if (gcloudProject === undefined) {
+    delete process.env.GCLOUD_PROJECT;
+  } else {
+    process.env.GCLOUD_PROJECT = gcloudProject;
+  }
   process.env.MEDIA_ALLOW_LOCAL_UPLOADS = String(allowLocalUploads);
   if (nodeEnv === undefined) {
     delete process.env.NODE_ENV;
@@ -60,12 +69,15 @@ async function postMedia({
     },
     storage: () => ({
       app: { options: { projectId: 'test-project' } },
-      bucket: () => ({
-        file: () => ({
-          save: async () => {},
-          getSignedUrl: async () => ['https://signed.example.test/media'],
-        }),
-      }),
+      bucket: (bucketName) => {
+        storageBucketNames.push(bucketName);
+        return {
+          file: () => ({
+            save: async () => {},
+            getSignedUrl: async () => ['https://signed.example.test/media'],
+          }),
+        };
+      },
     }),
     linkAuthUid: async () => {},
   }));
@@ -93,6 +105,7 @@ async function postMedia({
       status: response.status,
       body: await response.json(),
       githubRequest,
+      storageBucketNames,
     };
   } finally {
     await new Promise((resolve) => server.close(resolve));
@@ -548,6 +561,26 @@ test('media upload stores payment proof images in private storage', async () => 
   assert.equal(result.status, 201);
   assert.equal(result.githubRequest, undefined);
   assert.match(result.body.url, /^gs:\/\/test-private-media\/private\/receipts\/user-1\/.+\.jpg$/);
+});
+
+test('media upload derives the Firebase bucket from GCLOUD_PROJECT', async () => {
+  const result = await postMedia({
+    bytes: Buffer.from('payment proof'),
+    contentType: 'image/webp',
+    mediaType: 'receipts',
+    fileName: 'receipt.webp',
+    firebaseStorageBucket: '',
+    gcloudProject: 'she-m-8d0f5',
+  });
+
+  assert.equal(result.status, 201);
+  assert.deepEqual(result.storageBucketNames, [
+    'she-m-8d0f5.firebasestorage.app',
+  ]);
+  assert.match(
+    result.body.url,
+    /^gs:\/\/she-m-8d0f5\.firebasestorage\.app\/private\/receipts\/user-1\/.+\.webp$/,
+  );
 });
 
 test('media upload stores promotion images in the promotions directory', async () => {

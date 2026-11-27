@@ -280,9 +280,11 @@ function applyFirebaseQuery(ref, queryParameters) {
 }
 
 function isPublicRead(path) {
-  const [root] = path.split('/');
+  const parts = path.split('/');
+  const [root] = parts;
   return publicReadRoots.has(root) ||
     publicReadPaths.has(path) ||
+    (root === 'product_ratings' && parts.length === 2) ||
     (path.split('/').length === 3 &&
       path.startsWith('settings/payment_wallets/')) ||
     ['wallets', 'payment_wallets'].includes(root);
@@ -389,6 +391,21 @@ function publicProducts(products, caller, path) {
           : publicProduct(product),
       ]),
   );
+}
+
+function publicProductRatingSummary(ratings) {
+  const values = Object.values(
+    ratings && typeof ratings === 'object' && !Array.isArray(ratings)
+      ? ratings
+      : {},
+  )
+    .map((entry) => Number(entry?.rating))
+    .filter((rating) => Number.isFinite(rating) && rating >= 1 && rating <= 5);
+  const count = values.length;
+  const average = count === 0
+    ? 0
+    : values.reduce((total, rating) => total + rating, 0) / count;
+  return { average, count };
 }
 
 function publicWallet(wallet) {
@@ -2653,6 +2670,9 @@ function createDatabaseRouter({
         if (isPublicRead(path)) {
           if (parts[0] === 'products') {
             return res.json(publicProducts(value, caller, path));
+          }
+          if (parts[0] === 'product_ratings') {
+            return res.json(publicProductRatingSummary(value));
           }
           if (parts[0] === 'wallets' || parts[0] === 'payment_wallets') {
             return res.json(
