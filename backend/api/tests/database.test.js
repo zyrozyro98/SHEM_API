@@ -530,6 +530,11 @@ test('customer can update their profile but cannot change protected identity fie
       token: 'customer-token',
       body: { role: 'admin' },
     });
+    const emailUpdate = await request(server, 'profiles/customer-1', {
+      method: 'PATCH',
+      token: 'customer-token',
+      body: { email: 'unverified@example.com' },
+    });
     const authIndexUpdate = await request(server, 'auth_index/uid-customer', {
       method: 'PUT',
       token: 'customer-token',
@@ -539,6 +544,7 @@ test('customer can update their profile but cannot change protected identity fie
     assert.equal(profileUpdate.status, 200);
     assert.equal(store.values.profiles['customer-1'].full_name, 'After');
     assert.equal(roleUpdate.status, 403);
+    assert.equal(emailUpdate.status, 403);
     assert.equal(authIndexUpdate.status, 403);
   } finally {
     await new Promise((resolve) => server.close(resolve));

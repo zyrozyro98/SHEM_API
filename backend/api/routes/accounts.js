@@ -3,6 +3,7 @@ const express = require('express');
 const {
   getFirebaseAuth,
   getFirebaseDatabase,
+  getFirebaseStorage,
 } = require('../services/firebase_admin');
 const { normalizePhone, passwordMatches } = require('../services/auth_utils');
 
@@ -117,6 +118,17 @@ function createFirebaseDependencies() {
     },
     update: (updates) => getFirebaseDatabase().ref().update(updates),
     deleteAuthUser: (uid) => getFirebaseAuth().deleteUser(uid),
+    deleteAccountMedia: async ({ profileId, profileIdAlias, uid }) => {
+      const bucket = getFirebaseStorage().bucket();
+      const prefixes = new Set([
+        `private/profiles/${uid}/`,
+        `private/driver-licenses/${profileId}/${uid}/`,
+        `private/driver-licenses/${profileIdAlias}/${uid}/`,
+      ]);
+      await Promise.all(
+        [...prefixes].map((prefix) => bucket.deleteFiles({ prefix })),
+      );
+    },
     submitDeletionRequest: async (request) => {
       const requestRef = getFirebaseDatabase()
         .ref('account_deletion_requests')
@@ -129,7 +141,13 @@ function createFirebaseDependencies() {
 
 function createAccountsRouter(dependencies = createFirebaseDependencies()) {
   const router = express.Router();
-  const { read, update, deleteAuthUser, submitDeletionRequest } = dependencies;
+  const {
+    read,
+    update,
+    deleteAuthUser,
+    deleteAccountMedia = async () => {},
+    submitDeletionRequest,
+  } = dependencies;
   const failedReauthentication = new Map();
   const deletionRequestAttempts = new Map();
 
@@ -387,6 +405,13 @@ function createAccountsRouter(dependencies = createFirebaseDependencies()) {
         }
       }
 
+      if (authUid) {
+        await deleteAccountMedia({
+          profileId: targetKey,
+          profileIdAlias: String(target.id ?? targetKey),
+          uid: authUid,
+        });
+      }
       await update(updates);
       if (authUid) {
         try {

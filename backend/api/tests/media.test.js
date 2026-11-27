@@ -23,6 +23,7 @@ async function postMedia({
   allowLocalUploads = false,
   firebaseStorageBucket = 'test-private-media',
   gcloudProject,
+  firebaseUser = { uid: 'user-1' },
 }) {
   const originalEnvironment = {
     GITHUB_TOKEN: process.env.GITHUB_TOKEN,
@@ -34,6 +35,8 @@ async function postMedia({
   };
   let githubRequest;
   const storageBucketNames = [];
+  const storageFilePaths = [];
+  const storageFileMetadata = [];
 
   process.env.GITHUB_TOKEN = 'test-github-token';
   process.env.GITHUB_REPOSITORY = 'owner/repository';
@@ -65,17 +68,31 @@ async function postMedia({
     createCustomToken: async (uid) => `custom-token-${uid}`,
     verifyIdToken: async (token) => {
       if (token !== validIdToken) throw new Error('Invalid token');
-      return { uid: 'user-1' };
+      return firebaseUser;
     },
+    database: () => ({
+      ref: (path) => ({
+        once: async () => ({
+          val: () => path.startsWith('auth_index/')
+            ? { profile_id: firebaseUser.profile_id }
+            : null,
+        }),
+      }),
+    }),
     storage: () => ({
       app: { options: { projectId: 'test-project' } },
       bucket: (bucketName) => {
         storageBucketNames.push(bucketName);
         return {
-          file: () => ({
-            save: async () => {},
+          file: (path) => {
+            storageFilePaths.push(path);
+            return {
+            save: async (_bytes, options) => {
+              storageFileMetadata.push(options.metadata);
+            },
             getSignedUrl: async () => ['https://signed.example.test/media'],
-          }),
+            };
+          },
         };
       },
     }),
@@ -106,6 +123,8 @@ async function postMedia({
       body: await response.json(),
       githubRequest,
       storageBucketNames,
+      storageFilePaths,
+      storageFileMetadata,
     };
   } finally {
     await new Promise((resolve) => server.close(resolve));
@@ -561,6 +580,139 @@ test('media upload stores payment proof images in private storage', async () => 
   assert.equal(result.status, 201);
   assert.equal(result.githubRequest, undefined);
   assert.match(result.body.url, /^gs:\/\/test-private-media\/private\/receipts\/user-1\/.+\.jpg$/);
+});
+
+test('driver license uploads use a private path identifying the owner account', async () => {
+  const result = await postMedia({
+    bytes: Buffer.from('driver license'),
+    contentType: 'image/webp',
+    mediaType: 'driver-licenses',
+    fileName: 'driver-license.webp',
+    firebaseUser: {
+      uid: 'driver-auth-uid',
+      profile_id: 'driver-profile-123',
+      otp_verified: true,
+    },
+  });
+
+  assert.equal(result.status, 201);
+  assert.equal(result.githubRequest, undefined);
+  assert.match(
+    result.body.url,
+    /^gs:\/\/test-private-media\/private\/driver-licenses\/driver-profile-123\/driver-auth-uid\/license\.webp$/,
+  );
+  assert.match(
+    result.storageFilePaths[0],
+    /^private\/driver-licenses\/driver-profile-123\/driver-auth-uid\/license\.webp$/,
+  );
+  assert.equal(result.storageFileMetadata[0].cacheControl, 'private, no-store');
+  assert.equal(
+    result.storageFileMetadata[0].metadata.owner_profile_id,
+    'driver-profile-123',
+  );
+});
+
+test('driver license upload requires a verified driver profile or signup OTP', async () => {
+  const result = await postMedia({
+    bytes: Buffer.from('driver license'),
+    contentType: 'image/webp',
+    mediaType: 'driver-licenses',
+    fileName: 'driver-license.webp',
+    firebaseUser: {
+      uid: 'customer-auth-uid',
+      profile_id: 'customer-profile',
+      otp_verified: false,
+    },
+  });
+
+  assert.equal(result.status, 403);
+  assert.equal(result.storageFilePaths.length, 0);
+});
+
+test('driver license signed URLs are limited to the owner and administrators', async () => {
+  const objectKey =
+    'gs://test-private-media/private/driver-licenses/driver-profile/driver-uid/license.webp';
+  const previousStorageBucket = process.env.FIREBASE_STORAGE_BUCKET;
+  process.env.FIREBASE_STORAGE_BUCKET = 'test-private-media';
+
+  async function getSignedUrl(firebaseUser) {
+    let signed = false;
+    delete require.cache[mediaModulePath];
+    const app = express();
+    app.use('/media', require(mediaModulePath).createMediaRouter({
+      verifyIdToken: async () => firebaseUser,
+      database: () => ({
+        ref: (path) => ({
+          once: async () => ({
+            val: () => path === `auth_index/${firebaseUser.uid}`
+              ? { profile_id: firebaseUser.profile_id }
+              : { role: firebaseUser.role || 'driver' },
+          }),
+        }),
+      }),
+      storage: () => ({
+        app: { options: { projectId: 'test-project' } },
+        bucket: () => ({
+          file: () => ({
+            getSignedUrl: async () => {
+              signed = true;
+              return ['https://signed.example.test/license'];
+            },
+          }),
+        }),
+      }),
+    }));
+    const server = app.listen(0);
+    await new Promise((resolve) => server.once('listening', resolve));
+    try {
+      const response = await fetch(
+        `http://127.0.0.1:${server.address().port}/media/signed-url?object=${
+          encodeURIComponent(objectKey)
+        }`,
+        { headers: { Authorization: `Bearer ${validIdToken}` } },
+      );
+      const body = await response.json();
+      return {
+        status: response.status,
+        signed,
+        expiresIn: body.expires_in,
+      };
+    } finally {
+      await new Promise((resolve) => server.close(resolve));
+    }
+  }
+
+  try {
+    const owner = await getSignedUrl({
+      uid: 'driver-uid',
+      profile_id: 'driver-profile',
+      role: 'driver',
+    });
+    const unrelatedUser = await getSignedUrl({
+      uid: 'other-uid',
+      profile_id: 'other-profile',
+      role: 'customer',
+    });
+    const admin = await getSignedUrl({
+      uid: 'admin-uid',
+      profile_id: 'admin-profile',
+      role: 'admin',
+    });
+
+    assert.deepEqual(owner, { status: 200, signed: true, expiresIn: 300 });
+    assert.deepEqual(unrelatedUser, {
+      status: 403,
+      signed: false,
+      expiresIn: undefined,
+    });
+    assert.deepEqual(admin, { status: 200, signed: true, expiresIn: 300 });
+  } finally {
+    if (previousStorageBucket === undefined) {
+      delete process.env.FIREBASE_STORAGE_BUCKET;
+    } else {
+      process.env.FIREBASE_STORAGE_BUCKET = previousStorageBucket;
+    }
+  }
 });
 
 test('media upload derives the Firebase bucket from GCLOUD_PROJECT', async () => {

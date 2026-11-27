@@ -17,6 +17,7 @@ async function requestDeletion(
   deleteAuthUser,
 ) {
   const authDeletions = [];
+  const mediaDeletions = [];
   const updates = [];
   const dependencies = {
     read: async (path) => structuredClone(pathValue(data, path) ?? {}),
@@ -27,6 +28,7 @@ async function requestDeletion(
       }
     },
     deleteAuthUser: deleteAuthUser ?? (async (uid) => authDeletions.push(uid)),
+    deleteAccountMedia: async (account) => mediaDeletions.push(account),
   };
   const app = express();
   app.use(express.json());
@@ -50,6 +52,7 @@ async function requestDeletion(
       status: response.status,
       body: await response.json(),
       authDeletions,
+      mediaDeletions,
       updates,
     };
   } finally {
@@ -239,6 +242,11 @@ test('driver can delete their own account when no delivery is active', async () 
   assert.equal(result.status, 200);
   assert.equal(data.profiles.driver, undefined);
   assert.deepEqual(result.authDeletions, ['driver-auth-uid']);
+  assert.deepEqual(result.mediaDeletions, [{
+    profileId: 'driver',
+    profileIdAlias: 'driver',
+    uid: 'driver-auth-uid',
+  }]);
 });
 
 test('admin can delete an eligible merchant and archived listings retain history', async () => {

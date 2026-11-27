@@ -23,6 +23,12 @@ const mediaDirectories = {
   profiles: process.env.GITHUB_PROFILES_DIRECTORY?.trim() || 'assets/profiles',
   wallets: process.env.GITHUB_WALLETS_DIRECTORY?.trim() || 'assets/wallets',
 };
+const privateMediaTypes = new Set([
+  'profiles',
+  'receipts',
+  'wallets',
+  'driver-licenses',
+]);
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: maxVideoBytes },
@@ -525,12 +531,15 @@ function createMediaRouter(dependencies = createFirebaseDependencies()) {
     }
 
     const uid = req.firebaseUser?.uid;
-    const match = /^private\/(profiles|receipts|wallets)\/([^/]+)\//.exec(objectPath);
-    if (!uid || !match) {
+    const privateMatch =
+      /^private\/(profiles|receipts|wallets)\/([^/]+)\//.exec(objectPath);
+    const licenseMatch =
+      /^private\/driver-licenses\/([^/]+)\/([^/]+)\//.exec(objectPath);
+    if (!uid || (!privateMatch && !licenseMatch)) {
       return res.status(403).json({ error_code: 'object_not_authorized' });
     }
 
-    const ownerUid = match[2];
+    const ownerUid = licenseMatch ? licenseMatch[2] : privateMatch[2];
     let isAdmin = false;
     try {
       const db = databaseProvider();
@@ -543,21 +552,28 @@ function createMediaRouter(dependencies = createFirebaseDependencies()) {
     } catch (_) {
       isAdmin = false;
     }
-    if (!isAdmin && ownerUid !== uid) {
+    const ownerProfileId = licenseMatch?.[1];
+    const requesterProfileId = String(
+      req.firebaseUser.profile_id || uid,
+    ).trim();
+    if (!isAdmin &&
+        (ownerUid !== uid ||
+          (ownerProfileId && ownerProfileId !== requesterProfileId))) {
       return res.status(403).json({ error_code: 'object_not_authorized' });
     }
 
     try {
+      const expiresIn = licenseMatch ? 5 * 60 : 15 * 60;
       const [signedUrl] = await storage
         .bucket(configuredBucket)
         .file(objectPath)
         .getSignedUrl({
           version: 'v4',
           action: 'read',
-          expires: Date.now() + 15 * 60 * 1000,
+          expires: Date.now() + expiresIn * 1000,
           responseType: 'application/octet-stream',
         });
-      return res.json({ url: signedUrl, expires_in: 900 });
+      return res.json({ url: signedUrl, expires_in: expiresIn });
     } catch (error) {
       console.error('Private media signed URL error', error);
       return res.status(502).json({ error_code: 'signed_url_failed' });
@@ -573,7 +589,8 @@ function createMediaRouter(dependencies = createFirebaseDependencies()) {
       .toString()
       .trim()
       .toLowerCase();
-    if (!Object.prototype.hasOwnProperty.call(mediaDirectories, mediaType)) {
+    if (!Object.prototype.hasOwnProperty.call(mediaDirectories, mediaType) &&
+        !privateMediaTypes.has(mediaType)) {
       return res.status(400).json({ error: 'Invalid media type' });
     }
 
@@ -593,7 +610,8 @@ function createMediaRouter(dependencies = createFirebaseDependencies()) {
         ? 'mp4'
         : req.file.mimetype.split('/')[1].replace('jpeg', 'jpg');
 
-      if (['profiles', 'receipts', 'wallets'].includes(mediaType)) {
+      if (['profiles', 'receipts', 'wallets', 'driver-licenses']
+          .includes(mediaType)) {
         const storage = storageProvider();
         const bucketName = getStorageBucketName(storage);
         const bucket = storage.bucket(bucketName);
@@ -601,14 +619,55 @@ function createMediaRouter(dependencies = createFirebaseDependencies()) {
         if (!uid) {
           return res.status(401).json({ error_code: 'invalid_authentication' });
         }
-        const path = `private/${mediaType}/${uid}/${uuidv4()}.${extension}`;
+        let path;
+        let ownerProfileId;
+        if (mediaType === 'driver-licenses') {
+          const database = databaseProvider();
+          const authIndexSnapshot = await database
+            .ref(`auth_index/${uid}`)
+            .once('value');
+          const authIndex = authIndexSnapshot.val() ?? {};
+          ownerProfileId = String(
+            authIndex.profile_id || req.firebaseUser.profile_id || '',
+          ).trim();
+          if (!/^[A-Za-z0-9_-]{1,128}$/.test(ownerProfileId)) {
+            return res.status(403).json({
+              error_code: 'driver_profile_not_linked',
+            });
+          }
+
+          const profileSnapshot = await database
+            .ref(`profiles/${ownerProfileId}`)
+            .once('value');
+          const profile = profileSnapshot.val();
+          if (profile &&
+              String(profile.role || '').trim().toLowerCase() !== 'driver') {
+            return res.status(403).json({
+              error_code: 'driver_profile_required',
+            });
+          }
+          if (!profile && req.firebaseUser.otp_verified !== true) {
+            return res.status(403).json({
+              error_code: 'driver_profile_required',
+            });
+          }
+          path = `private/driver-licenses/${ownerProfileId}/${uid}/license.${extension}`;
+        } else {
+          path = `private/${mediaType}/${uid}/${uuidv4()}.${extension}`;
+        }
         await bucket.file(path).save(req.file.buffer, {
           resumable: false,
           metadata: {
             contentType: req.file.mimetype,
+            ...(mediaType === 'driver-licenses'
+              ? { cacheControl: 'private, no-store' }
+              : {}),
             metadata: {
               owner_uid: uid,
               media_type: mediaType,
+              ...(ownerProfileId
+                ? { owner_profile_id: ownerProfileId }
+                : {}),
             },
           },
         });

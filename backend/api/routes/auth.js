@@ -188,6 +188,12 @@ function createFirebaseDependencies() {
         profile_id: profileId,
         role: String(profile.role ?? 'customer').trim().toLowerCase(),
       }),
+    syncVerifiedEmail: (profileId, email) =>
+      getFirebaseDatabase().ref(`profiles/${profileId}`).update({
+        email,
+        email_verified: true,
+        pending_email: null,
+      }),
     updateCustomClaims: async (uid, claims) => {
       const auth = getFirebaseAuth();
       const user = await auth.getUser(uid);
@@ -212,6 +218,7 @@ function createAuthRouter(dependencies = createFirebaseDependencies()) {
     verifyIdToken,
     resolveProfile,
     syncAuthIndex,
+    syncVerifiedEmail = async () => {},
     updateCustomClaims,
     updateProfilePassword,
     updateAuthPassword,
@@ -382,7 +389,23 @@ function createAuthRouter(dependencies = createFirebaseDependencies()) {
       }
 
       const role = String(profile.role ?? 'customer').trim().toLowerCase();
-      await syncAuthIndex(user.uid, profileId, profile);
+      let syncedProfile = profile;
+      const verifiedEmail = String(user.email ?? '').trim().toLowerCase();
+      if (user.email_verified === true && verifiedEmail) {
+        const needsEmailSync = profile.email !== verifiedEmail ||
+          profile.email_verified !== true ||
+          profile.pending_email != null;
+        if (needsEmailSync) {
+          await syncVerifiedEmail(profileId, verifiedEmail);
+          syncedProfile = {
+            ...profile,
+            email: verifiedEmail,
+            email_verified: true,
+            pending_email: null,
+          };
+        }
+      }
+      await syncAuthIndex(user.uid, profileId, syncedProfile);
       await updateCustomClaims(user.uid, {
         profile_id: profileId,
         role,

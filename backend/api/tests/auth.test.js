@@ -14,6 +14,7 @@ async function startAuthApp(dependencies = {}) {
     verifyIdToken: async () => ({ uid: 'test-user' }),
     resolveProfile: async () => ({ profileId: '', profile: null }),
     syncAuthIndex: async () => {},
+    syncVerifiedEmail: async () => {},
     updateCustomClaims: async () => {},
     updateProfilePassword: async () => {},
     updateAuthPassword: async () => {},
@@ -426,6 +427,104 @@ test('session sync grants claims only for a profile linked to the Firebase UID',
       'linked-user',
       { profile_id: 'merchant-profile', role: 'merchant' },
     ]);
+  } finally {
+    server.close();
+  }
+});
+
+test('session sync persists a verified Firebase email on its linked profile', async () => {
+  const profile = {
+    id: 'customer-profile',
+    auth_uid: 'linked-user',
+    phone: '+967771234567',
+    email: 'old@example.com',
+    email_verified: false,
+    pending_email: 'new@example.com',
+    role: 'customer',
+  };
+  let syncedProfileEmail;
+  let syncedIndex;
+  const server = await startAuthApp({
+    verifyIdToken: async () => ({
+      uid: 'linked-user',
+      email: 'New@Example.com',
+      email_verified: true,
+    }),
+    resolveProfile: async () => ({
+      profileId: 'customer-profile',
+      profile,
+    }),
+    syncVerifiedEmail: async (...args) => {
+      syncedProfileEmail = args;
+    },
+    syncAuthIndex: async (...args) => {
+      syncedIndex = args;
+    },
+  });
+
+  try {
+    const response = await fetch(
+      `http://127.0.0.1:${server.address().port}/auth/sync-session`,
+      {
+        method: 'POST',
+        headers: { Authorization: 'Bearer valid-id-token' },
+      },
+    );
+
+    assert.equal(response.status, 200);
+    assert.deepEqual(syncedProfileEmail, [
+      'customer-profile',
+      'new@example.com',
+    ]);
+    assert.deepEqual(syncedIndex, [
+      'linked-user',
+      'customer-profile',
+      {
+        ...profile,
+        email: 'new@example.com',
+        email_verified: true,
+        pending_email: null,
+      },
+    ]);
+  } finally {
+    server.close();
+  }
+});
+
+test('session sync ignores email claims that Firebase has not verified', async () => {
+  let emailSynced = false;
+  const server = await startAuthApp({
+    verifyIdToken: async () => ({
+      uid: 'linked-user',
+      email: 'unverified@example.com',
+      email_verified: false,
+    }),
+    resolveProfile: async () => ({
+      profileId: 'customer-profile',
+      profile: {
+        id: 'customer-profile',
+        auth_uid: 'linked-user',
+        email: 'current@example.com',
+        email_verified: true,
+        role: 'customer',
+      },
+    }),
+    syncVerifiedEmail: async () => {
+      emailSynced = true;
+    },
+  });
+
+  try {
+    const response = await fetch(
+      `http://127.0.0.1:${server.address().port}/auth/sync-session`,
+      {
+        method: 'POST',
+        headers: { Authorization: 'Bearer valid-id-token' },
+      },
+    );
+
+    assert.equal(response.status, 200);
+    assert.equal(emailSynced, false);
   } finally {
     server.close();
   }
