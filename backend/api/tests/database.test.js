@@ -443,6 +443,58 @@ test('customer profile reads expose only public merchant fields for other profil
   }
 });
 
+test('drivers can read only their own preferences', async () => {
+  const { server } = await startDatabaseApp({
+    initial: {
+      profiles: {
+        'driver-1': {
+          id: 'driver-1',
+          role: 'driver',
+          auth_uid: 'uid-driver-1',
+        },
+      },
+      auth_index: {
+        'uid-driver-1': { profile_id: 'driver-1', role: 'driver' },
+      },
+      driver_preferences: {
+        'driver-1': { favorites: { 'order-1': true } },
+        'driver-2': { favorites: { 'order-2': true } },
+      },
+    },
+    users: {
+      'driver-token': {
+        uid: 'uid-driver-1',
+        profile_id: 'driver-1',
+        role: 'driver',
+      },
+    },
+  });
+  try {
+    const ownPreferences = await request(
+      server,
+      'driver_preferences/driver-1/favorites',
+      { token: 'driver-token' },
+    );
+    const otherPreferences = await request(
+      server,
+      'driver_preferences/driver-2/favorites',
+      { token: 'driver-token' },
+    );
+    const allPreferences = await request(
+      server,
+      'driver_preferences',
+      { token: 'driver-token' },
+    );
+
+    assert.equal(ownPreferences.status, 200);
+    assert.deepEqual(ownPreferences.body, { 'order-1': true });
+    assert.equal(otherPreferences.status, 403);
+    assert.equal(allPreferences.status, 403);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
 test('public product reads hide unpublished products and private fields', async () => {
   const { server } = await startDatabaseApp({
     initial: {

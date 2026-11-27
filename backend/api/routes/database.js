@@ -543,6 +543,10 @@ function canReadPrivatePath(path, caller, value) {
       return String(
         value?.profile_id ?? value?.user_id ?? value?.recipient_id ?? '',
       ) === caller.profileId;
+    case 'driver_preferences':
+      return caller.role === 'driver' &&
+        parts.length >= 2 &&
+        parts[1] === caller.profileId;
     default:
       return false;
   }
