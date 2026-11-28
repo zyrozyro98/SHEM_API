@@ -1673,9 +1673,26 @@ function createDatabaseRouter({
       return null;
     }
     const profileId = claimedProfileId || indexedProfileId || token.uid;
-    const profileSnapshot = await database()
-      .ref(`profiles/${profileId}`).once('value');
-    const profile = profileSnapshot.val();
+    let profile = (await database()
+      .ref(`profiles/${profileId}`).once('value')).val();
+    if (!profile) {
+      const profilesSnapshot = await database()
+        .ref('profiles')
+        .once('value');
+      const profiles = profilesSnapshot.val();
+      if (profiles && typeof profiles === 'object') {
+        for (const [candidateId, candidate] of Object.entries(profiles)) {
+          const linkedUid = String(
+            candidate?.auth_uid ?? candidate?.authUid ?? '',
+          ).trim();
+          if (linkedUid === token.uid) {
+            profile = candidate;
+            profileId = candidateId;
+            break;
+          }
+        }
+      }
+    }
     let role = claimedRole;
     if (profile) {
       const currentRole = String(profile.role ?? '').trim().toLowerCase();

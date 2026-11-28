@@ -179,6 +179,24 @@ function createFirebaseDependencies() {
       profileId = String(authIndex.profile_id ?? '').trim() ||
         normalizeYemenPhoneKey(authIndex.phone) || uid;
       profile = await readProfile(profileId);
+      if (!profile) {
+        const profilesSnapshot = await getFirebaseDatabase()
+          .ref('profiles')
+          .once('value');
+        const profiles = profilesSnapshot.val();
+        if (profiles && typeof profiles === 'object') {
+          for (const [candidateId, candidate] of Object.entries(profiles)) {
+            const linkedUid = String(
+              candidate?.auth_uid ?? candidate?.authUid ?? '',
+            ).trim();
+            if (linkedUid === uid) {
+              profileId = candidateId;
+              profile = candidate;
+              break;
+            }
+          }
+        }
+      }
       return { profileId, profile, authIndex };
     },
     syncAuthIndex: (uid, profileId, profile) =>
