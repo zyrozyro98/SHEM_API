@@ -1675,33 +1675,28 @@ function createDatabaseRouter({
     const authIndex = authIndexSnapshot.val() ?? {};
     const claimedProfileId = String(token.profile_id ?? '').trim();
     const indexedProfileId = String(authIndex.profile_id ?? '').trim();
-    if (
-      claimedProfileId &&
-      indexedProfileId &&
-      claimedProfileId !== indexedProfileId
-    ) {
-      return null;
-    }
-    let profileId = claimedProfileId || indexedProfileId || token.uid;
-    let profile = (await database()
-      .ref(`profiles/${profileId}`).once('value')).val();
-    if (!profile) {
-      const profilesSnapshot = await database()
-        .ref('profiles')
-        .once('value');
-      const profiles = profilesSnapshot.val();
-      if (profiles && typeof profiles === 'object') {
-        for (const [candidateId, candidate] of Object.entries(profiles)) {
-          const linkedUid = String(
-            candidate?.auth_uid ?? candidate?.authUid ?? '',
-          ).trim();
-          if (linkedUid === token.uid) {
-            profile = candidate;
-            profileId = candidateId;
-            break;
-          }
+    const profilesSnapshot = await database()
+      .ref('profiles')
+      .once('value');
+    const profiles = profilesSnapshot.val();
+    let profileId = '';
+    let profile = null;
+    if (profiles && typeof profiles === 'object') {
+      for (const [candidateId, candidate] of Object.entries(profiles)) {
+        const linkedUid = String(
+          candidate?.auth_uid ?? candidate?.authUid ?? '',
+        ).trim();
+        if (linkedUid === token.uid) {
+          profileId = candidateId;
+          profile = candidate;
+          break;
         }
       }
+    }
+    if (!profile) {
+      profileId = claimedProfileId || indexedProfileId || token.uid;
+      profile = (await database()
+        .ref(`profiles/${profileId}`).once('value')).val();
     }
     let role = claimedRole;
     if (profile) {
