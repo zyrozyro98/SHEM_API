@@ -577,7 +577,10 @@ function validProfileWrite(path, caller, current, next) {
   )) {
     return false;
   }
-  if (String(next.id ?? caller.profileId) !== caller.profileId) return false;
+  if (!isPhoneAliasPath &&
+      String(next.id ?? caller.profileId) !== caller.profileId) {
+    return false;
+  }
   if (isCreate && caller.role !== 'customer') return false;
   if (isCreate && String(next.role ?? 'customer') !== 'customer') return false;
   if (isCreate && next.is_verified === true) return false;
