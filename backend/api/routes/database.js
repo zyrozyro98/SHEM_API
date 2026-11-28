@@ -766,17 +766,24 @@ function canWrite(path, caller, current, next) {
     case 'payment_proofs':
       return false;
     case 'notifications':
+      if (next == null) {
+        return String(
+          current?.profile_id ??
+          current?.user_id ??
+          current?.recipient_id ??
+          '',
+        ) === caller.profileId;
+      }
       return String(
         (next ?? current)?.profile_id ??
         (next ?? current)?.user_id ??
         (next ?? current)?.recipient_id ??
         '',
       ) === caller.profileId &&
-        (!current ||
-          [...changedKeys(current, next)].every((key) =>
-            (key === 'read' || key === 'is_read') &&
-            typeof next?.[key] === 'boolean'
-          ));
+        [...changedKeys(current, next)].every((key) =>
+          (key === 'read' || key === 'is_read') &&
+          typeof next?.[key] === 'boolean'
+        );
     case 'driver_preferences':
       return caller.role === 'driver' && parts[1] === caller.profileId;
     case 'merchant_withdrawal_requests':
