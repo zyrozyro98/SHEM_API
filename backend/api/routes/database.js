@@ -1672,7 +1672,7 @@ function createDatabaseRouter({
     ) {
       return null;
     }
-    const profileId = claimedProfileId || indexedProfileId || token.uid;
+    let profileId = claimedProfileId || indexedProfileId || token.uid;
     let profile = (await database()
       .ref(`profiles/${profileId}`).once('value')).val();
     if (!profile) {
