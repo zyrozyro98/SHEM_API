@@ -531,18 +531,18 @@ function canReadPrivatePath(path, caller, value) {
       if (parts.length === 1 && value && typeof value === 'object') {
         return Object.fromEntries(
           Object.entries(value).filter(([, notification]) =>
-            String(
+            [caller.profileId, caller.uid].includes(String(
               notification?.profile_id ??
               notification?.user_id ??
               notification?.recipient_id ??
               '',
-            ) === caller.profileId
+            ))
           ),
         );
       }
-      return String(
+      return [caller.profileId, caller.uid].includes(String(
         value?.profile_id ?? value?.user_id ?? value?.recipient_id ?? '',
-      ) === caller.profileId;
+      ));
     case 'driver_preferences':
       return caller.role === 'driver' &&
         parts.length >= 2 &&
@@ -768,19 +768,19 @@ function canWrite(path, caller, current, next) {
       return false;
     case 'notifications':
       if (next == null) {
-        return String(
+        return [caller.profileId, caller.uid].includes(String(
           current?.profile_id ??
           current?.user_id ??
           current?.recipient_id ??
           '',
-        ) === caller.profileId;
+        ));
       }
-      return String(
+      return [caller.profileId, caller.uid].includes(String(
         (next ?? current)?.profile_id ??
         (next ?? current)?.user_id ??
         (next ?? current)?.recipient_id ??
         '',
-      ) === caller.profileId &&
+      )) &&
         [...changedKeys(current, next)].every((key) =>
           (key === 'read' || key === 'is_read') &&
           typeof next?.[key] === 'boolean'
@@ -2825,6 +2825,33 @@ function createDatabaseRouter({
 
       if (!result.committed) {
         return res.status(412).json({ error_code: 'precondition_failed' });
+      }
+      if (req.method === 'DELETE' &&
+          isAdmin(caller) &&
+          path.split('/').length === 2 &&
+          path.split('/')[0] === 'orders') {
+        try {
+          const notificationsSnapshot = await database()
+            .ref('notifications')
+            .once('value');
+          const notifications = notificationsSnapshot.val() ?? {};
+          for (const [notificationId, notification] of
+            Object.entries(notifications)) {
+            const notificationOrderId = String(
+              notification?.order_id ?? notification?.orderId ?? '',
+            ).trim();
+            if (notificationOrderId === path.split('/')[1]) {
+              await database()
+                .ref(`notifications/${notificationId}`)
+                .transaction(() => null);
+            }
+          }
+        } catch (error) {
+          console.error(
+            'Order deletion notification cleanup failed:',
+            error.code ?? 'unknown',
+          );
+        }
       }
       return res.json(result.snapshot.val());
     } catch (error) {
