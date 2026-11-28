@@ -572,7 +572,8 @@ function validProfileWrite(path, caller, current, next) {
   if ([...changed].some((key) =>
     !allowedFields.has(key) &&
     !(isCreate && ['id', 'role', 'auth_uid', 'password_hash',
-      'auth_provider', 'created_at', 'is_verified', 'phone', 'email']
+      'auth_provider', 'google_email', 'google_uid', 'created_at',
+      'is_verified', 'phone', 'email']
       .includes(key))
   )) {
     return false;
