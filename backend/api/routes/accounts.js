@@ -30,6 +30,47 @@ function toObject(value) {
     : {};
 }
 
+function identitySet(...values) {
+  return new Set(values.map((value) => String(value ?? '').trim()).filter(Boolean));
+}
+
+function canonicalPhone(value) {
+  let digits = normalizePhone(value);
+  if (digits.startsWith('967') && digits.length === 12) {
+    digits = digits.slice(3);
+  } else if (digits.startsWith('0') && digits.length === 10) {
+    digits = digits.slice(1);
+  }
+  return digits;
+}
+
+function phonesMatch(first, second) {
+  const firstCanonical = canonicalPhone(first);
+  const secondCanonical = canonicalPhone(second);
+  return firstCanonical !== '' &&
+    secondCanonical !== '' &&
+    firstCanonical === secondCanonical;
+}
+
+function notificationBelongsToIdentity(notification, identityIds, phoneIds) {
+  const value = toObject(notification);
+  const recipientId = String(
+    value.profile_id ?? value.profileId ?? value.user_id ??
+      value.userId ?? value.recipient_id ?? value.recipientId ?? '',
+  ).trim();
+  return identityIds.has(recipientId) ||
+    phoneIds.has(normalizePhone(recipientId));
+}
+
+function refundBelongsToIdentity(refund, identityIds, phoneIds) {
+  const value = toObject(refund);
+  const customerId = String(
+    value.customer_id ?? value.customerId ?? value.profile_id ?? value.profileId ?? '',
+  ).trim();
+  return identityIds.has(customerId) ||
+    phoneIds.has(normalizePhone(customerId));
+}
+
 function productOwners(products) {
   const owners = new Map();
   for (const [key, value] of Object.entries(products)) {
@@ -357,6 +398,32 @@ function createAccountsRouter(dependencies = createFirebaseDependencies()) {
             await read(`customers/${id}`),
           ]))
         : [];
+      const identityIds = identitySet(
+        targetKey,
+        String(target.id ?? ''),
+        targetPhone,
+        targetPhone.replace(/\D/g, ''),
+      );
+      const phoneIds = identitySet(targetPhone);
+      const [
+        notifications,
+        authSwitchSessions,
+        refundRequests,
+        productRatings,
+        driverPreferences,
+        merchantWithdrawals,
+        withdrawalRequests,
+        deletionRequests,
+      ] = await Promise.all([
+        read('notifications'),
+        read('auth_switch_sessions'),
+        read('refund_requests'),
+        read('product_ratings'),
+        read('driver_preferences'),
+        read('merchant_withdrawals'),
+        read('merchant_withdrawal_requests'),
+        read('account_deletion_requests'),
+      ]);
 
       const updates = {
         [`profiles/${targetKey}`]: null,
@@ -376,6 +443,81 @@ function createAccountsRouter(dependencies = createFirebaseDependencies()) {
       for (const [id, data] of customerData) {
         if (Object.keys(toObject(data)).length > 0) {
           restoreUpdates[`customers/${id}`] = data;
+        }
+      }
+
+      for (const [id, value] of Object.entries(toObject(notifications))) {
+        if (notificationBelongsToIdentity(value, identityIds, phoneIds)) {
+          updates[`notifications/${id}`] = null;
+          restoreUpdates[`notifications/${id}`] = value;
+        }
+      }
+      for (const [id, value] of Object.entries(toObject(authSwitchSessions))) {
+        const session = toObject(value);
+        const sessionUid = String(session.uid ?? '').trim();
+        const sessionProfileId = String(session.profile_id ?? session.profileId ?? '').trim();
+        if (identityIds.has(sessionUid) ||
+            identityIds.has(sessionProfileId) ||
+            (authUid && sessionUid === authUid)) {
+          updates[`auth_switch_sessions/${id}`] = null;
+          restoreUpdates[`auth_switch_sessions/${id}`] = value;
+        }
+      }
+      for (const [id, value] of Object.entries(toObject(refundRequests))) {
+        if (refundBelongsToIdentity(value, identityIds, phoneIds)) {
+          updates[`refund_requests/${id}`] = null;
+          restoreUpdates[`refund_requests/${id}`] = value;
+        }
+      }
+      for (const [id, value] of Object.entries(toObject(driverPreferences))) {
+        if (identityIds.has(id) ||
+            identityIds.has(String(toObject(value).profile_id ?? '').trim())) {
+          updates[`driver_preferences/${id}`] = null;
+          restoreUpdates[`driver_preferences/${id}`] = value;
+        }
+      }
+      for (const [productId, ratingsValue] of Object.entries(toObject(productRatings))) {
+        const ratings = toObject(ratingsValue);
+        for (const [ratingId, ratingValue] of Object.entries(ratings)) {
+          const rating = toObject(ratingValue);
+          const ratingCustomerId = String(
+            rating.customer_id ?? rating.customerId ?? ratingId,
+          ).trim();
+          if (identityIds.has(ratingCustomerId) ||
+              phoneIds.has(normalizePhone(ratingCustomerId))) {
+            updates[`product_ratings/${productId}/${ratingId}/customer_id`] = null;
+            updates[`product_ratings/${productId}/${ratingId}/customerId`] = null;
+            updates[`product_ratings/${productId}/${ratingId}/comment`] = null;
+            restoreUpdates[`product_ratings/${productId}/${ratingId}`] = ratingValue;
+          }
+        }
+      }
+      for (const [id, value] of Object.entries(toObject(deletionRequests))) {
+        const request = toObject(value);
+        if (phonesMatch(request.phone, targetPhone) &&
+            String(request.account_type ?? '').trim().toLowerCase() === targetRole) {
+          updates[`account_deletion_requests/${id}/phone`] = null;
+          updates[`account_deletion_requests/${id}/reason`] = null;
+          updates[`account_deletion_requests/${id}/status`] = 'completed';
+          updates[`account_deletion_requests/${id}/personal_data_anonymized_at`] =
+            new Date().toISOString();
+          restoreUpdates[`account_deletion_requests/${id}`] = value;
+        }
+      }
+      if (targetRole === 'merchant') {
+        for (const [id, value] of Object.entries(toObject(merchantWithdrawals))) {
+          if (identityIds.has(id)) {
+            updates[`merchant_withdrawals/${id}`] = null;
+            restoreUpdates[`merchant_withdrawals/${id}`] = value;
+          }
+        }
+        for (const [id, value] of Object.entries(toObject(withdrawalRequests))) {
+          const request = toObject(value);
+          const merchantId = String(request.merchant_id ?? request.merchantId ?? '').trim();
+          if (identityIds.has(merchantId)) {
+            updates[`merchant_withdrawal_requests/${id}`] = null;
+            restoreUpdates[`merchant_withdrawal_requests/${id}`] = value;
+          }
         }
       }
 

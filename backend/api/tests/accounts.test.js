@@ -175,6 +175,36 @@ test('customer can delete after all orders are delivered or cancelled', async ()
     orders: {
       order2: { customer_id: 'customer', status: 'delivered' },
     },
+    notifications: {
+      customerNotification: { profile_id: 'customer', order_id: 'order2' },
+      otherNotification: { profile_id: 'other', order_id: 'order2' },
+    },
+    auth_switch_sessions: {
+      session1: { uid: 'customer-auth-uid', profile_id: 'customer' },
+      otherSession: { uid: 'other-auth-uid', profile_id: 'other' },
+    },
+    refund_requests: {
+      refund1: { customer_id: 'customer', reason: 'Damaged' },
+      refund2: { customer_id: 'other', reason: 'Other' },
+    },
+    product_ratings: {
+      product1: {
+        customer: {
+          customer_id: 'customer',
+          rating: 5,
+          comment: 'Personal comment',
+        },
+        other: { customer_id: 'other', rating: 4, comment: 'Keep' },
+      },
+    },
+    account_deletion_requests: {
+      request1: {
+        phone: '+967771111111',
+        account_type: 'customer',
+        reason: 'No longer use',
+        status: 'identity_verified',
+      },
+    },
   };
 
   const result = await requestDeletion(
@@ -187,6 +217,21 @@ test('customer can delete after all orders are delivered or cancelled', async ()
   assert.equal(result.status, 200);
   assert.equal(data.profiles.customer, undefined);
   assert.equal(data.customers.customer, undefined);
+  assert.equal(data.notifications.customerNotification, undefined);
+  assert.deepEqual(data.notifications.otherNotification, {
+    profile_id: 'other',
+    order_id: 'order2',
+  });
+  assert.equal(data.auth_switch_sessions.session1, undefined);
+  assert.ok(data.auth_switch_sessions.otherSession);
+  assert.equal(data.refund_requests.refund1, undefined);
+  assert.ok(data.refund_requests.refund2);
+  assert.equal(data.product_ratings.product1.customer.customer_id, undefined);
+  assert.equal(data.product_ratings.product1.customer.comment, undefined);
+  assert.equal(data.product_ratings.product1.customer.rating, 5);
+  assert.equal(data.account_deletion_requests.request1.phone, undefined);
+  assert.equal(data.account_deletion_requests.request1.reason, undefined);
+  assert.equal(data.account_deletion_requests.request1.status, 'completed');
   assert.deepEqual(result.authDeletions, ['customer-auth-uid']);
 });
 
